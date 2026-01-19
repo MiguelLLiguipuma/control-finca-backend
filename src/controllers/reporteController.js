@@ -1,4 +1,4 @@
-import { ReportesService } from '../Services/reportesService.js';
+import { ReportesService } from '../services/reportesService.js';
 
 export const ReportesController = {
 	async totalAnual(req, res) {
