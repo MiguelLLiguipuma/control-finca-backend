@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { pool } from '../db/db.js';
-import { syncWeatherForFinca } from '../services/weatherService.js';
+import { syncWeatherForFinca } from '../services/clima/weather.service.js';
 
 export const initWeatherWorker = () => {
 	// Se programa para las 23:55 (Casi medianoche)
