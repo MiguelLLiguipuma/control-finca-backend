@@ -1,5 +1,5 @@
 import axios from 'axios';
-import pool from '../db.js'; // Tu conexión a PostgreSQL
+import pool from '../db/db.js'; // Tu conexión a PostgreSQL
 
 const API_KEY = process.env.OPENWEATHER_API_KEY;
 
