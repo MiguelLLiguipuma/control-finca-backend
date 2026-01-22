@@ -14,7 +14,7 @@ import registroRoutes from './src/routes/registroRoutes.js';
 import reporteRoutes from './src/routes/reporteRoutes.js';
 import authRoutes from './src/routes/authRoutes.js';
 import cosechaRoutes from './src/routes/cosecha/cosechaRoutes.js';
-import { initWeatherWorker } from './workers/weatherWorker.js';
+import { initWeatherWorker } from './src/workers/weatherWorker.js';
 
 // Configuración de entorno
 dotenv.config();
