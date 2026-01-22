@@ -14,6 +14,7 @@ import registroRoutes from './src/routes/registroRoutes.js';
 import reporteRoutes from './src/routes/reporteRoutes.js';
 import authRoutes from './src/routes/authRoutes.js';
 import cosechaRoutes from './src/routes/cosecha/cosechaRoutes.js';
+import { initWeatherWorker } from './workers/weatherWorker.js';
 
 // Configuración de entorno
 dotenv.config();
@@ -52,8 +53,14 @@ app.listen(PORT, async () => {
 	console.log(`✅ Servidor backend en ejecución: http://localhost:${PORT}`);
 
 	try {
-		await pool.connect();
+		const client = await pool.connect();
 		console.log('✅ Conectado correctamente a PostgreSQL');
+		client.release(); // Liberamos el cliente inmediatamente
+
+		// 🔥 INICIAR MOTOR CLIMÁTICO (Worker)
+		// Esto encenderá el cron job que sincroniza el clima de todas las fincas
+		initWeatherWorker();
+		console.log('☀️ Motor de sincronización climática activado');
 	} catch (err) {
 		console.error('❌ Error al conectar con la base de datos:', err.message);
 	}
