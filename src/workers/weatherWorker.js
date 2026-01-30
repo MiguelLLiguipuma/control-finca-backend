@@ -3,36 +3,31 @@ import { pool } from '../db/db.js';
 import { syncWeatherForFinca } from '../services/clima/weather.service.js';
 
 export const initWeatherWorker = () => {
-	// Se programa para las 23:55 (Casi medianoche)
+	// 23:55 para cerrar el día con datos consolidados
 	cron.schedule(
 		'55 23 * * *',
 		async () => {
-			console.log('--- 🌏 INICIANDO ACTUALIZACIÓN CLIMÁTICA MULTI-FINCA ---');
+			console.log('--- 🌏 INICIANDO BARRIDO CLIMÁTICO ---');
+			const hoy = new Date().toISOString().split('T')[0];
 
 			try {
-				// 1. Obtenemos todas las fincas de TODOS los usuarios que tengan GPS
 				const { rows: fincas } = await pool.query(
 					'SELECT id, latitud, longitud FROM fincas WHERE latitud IS NOT NULL AND longitud IS NOT NULL',
 				);
 
-				if (fincas.length === 0) {
-					return console.log('ℹ️ No hay fincas configuradas con GPS aún.');
-				}
+				if (fincas.length === 0)
+					return console.log('ℹ️ No hay fincas con GPS.');
 
-				// 2. Recorremos cada finca y ejecutamos tu servicio
 				for (const finca of fincas) {
-					await syncWeatherForFinca(finca);
+					// Pasamos 'hoy' para que el servicio use una fecha consistente
+					await syncWeatherForFinca(finca, hoy);
 
-					// 3. Rate Limiting: Esperamos 1.5 seg entre fincas
-					// para que OpenWeather no nos bloquee la cuenta gratuita
+					// Rate Limiting para OpenWeather (1.5s entre llamadas)
 					await new Promise((resolve) => setTimeout(resolve, 1500));
 				}
-
-				console.log(
-					'--- ✅ PROCESO COMPLETADO: Todas las fincas actualizadas ---',
-				);
+				console.log('--- ✅ PROCESO COMPLETADO ---');
 			} catch (err) {
-				console.error('❌ ERROR CRÍTICO en el Barrido de Fincas:', err.message);
+				console.error('❌ ERROR CRÍTICO EN WORKER:', err.message);
 			}
 		},
 		{
