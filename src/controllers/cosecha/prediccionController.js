@@ -5,33 +5,29 @@ export const obtenerPrediccionCosecha = async (req, res) => {
 
 	try {
 		// CONSULTA MAESTRA: Evita el problema N+1 (múltiples queries en bucle)
-		const queryMaster = await pool.query(
+		const query = await pool.query(
 			`SELECT 
-        ce.id as calendario_id, 
-        ce.semana, 
-        ce.anio, 
-        ce.saldo, 
-        ce.fecha_enfunde, 
-        c.color,
-        conf.unidades_calor_objetivo, 
-        conf.ratio_estimado_cajas,
-        -- Subconsulta para sumar UC acumuladas
-        COALESCE((
-          SELECT SUM(unidades_calor_dia) 
-          FROM historial_clima_fincas 
-          WHERE finca_id = ce.finca_id AND fecha >= ce.fecha_enfunde
-        ), 0) as uc_acumuladas,
-        -- Promedio de las últimas 2 semanas para proyectar
-        COALESCE((
-          SELECT AVG(unidades_calor_dia) 
-          FROM historial_clima_fincas 
-          WHERE finca_id = ce.finca_id AND fecha > CURRENT_DATE - INTERVAL '14 days'
-        ), 12) as promedio_uc_reciente
-       FROM calendarios_enfunde ce
-       JOIN cintas c ON ce.color_id = c.id
-       LEFT JOIN configuracion_crecimiento conf ON ce.finca_id = conf.finca_id
-       WHERE ce.finca_id = $1 AND ce.saldo > 0 AND ce.estado = 'activo'
-       ORDER BY ce.anio ASC, ce.semana ASC`,
+				ce.id as calendario_id, 
+				ce.semana, 
+				ce.anio, 
+				ce.saldo, -- El saldo de racimos disponibles está aquí
+				c.color, 
+				c.color_hex,
+				re.fecha as fecha_inicio_real, -- La fecha real viene de registro_enfunde
+				conf.unidades_calor_objetivo,
+				conf.ratio_estimado_cajas,
+				COALESCE((
+					SELECT SUM(unidades_calor_dia) 
+					FROM historial_clima_fincas 
+					WHERE finca_id = ce.finca_id 
+					AND fecha >= re.fecha -- Contamos desde el registro real
+				), 0) as uc_acumuladas
+			 FROM calendarios_enfunde ce
+			 JOIN cintas c ON ce.color_id = c.id
+			 -- Unión vital: Buscamos el registro que le dio vida a este calendario
+			 JOIN registro_enfunde re ON ce.id = re.calendario_id 
+			 LEFT JOIN configuracion_crecimiento conf ON ce.finca_id = conf.finca_id
+			 WHERE ce.finca_id = $1 AND ce.saldo > 0 AND ce.estado = 'activo'`,
 			[finca_id],
 		);
 
