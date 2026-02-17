@@ -4,83 +4,83 @@ export const obtenerPrediccionCosecha = async (req, res) => {
 	const { finca_id } = req.params;
 
 	try {
-		// CONSULTA MAESTRA: Evita el problema N+1 (múltiples queries en bucle)
-		const query = await pool.query(
-			`SELECT 
-				ce.id as calendario_id, 
-				ce.semana, 
-				ce.anio, 
-				ce.saldo, -- El saldo de racimos disponibles está aquí
-				c.color, 
-				c.color_hex,
-				re.fecha as fecha_inicio_real, -- La fecha real viene de registro_enfunde
-				conf.unidades_calor_objetivo,
-				conf.ratio_estimado_cajas,
-				COALESCE((
-					SELECT SUM(unidades_calor_dia) 
-					FROM historial_clima_fincas 
-					WHERE finca_id = ce.finca_id 
-					AND fecha >= re.fecha -- Contamos desde el registro real
-				), 0) as uc_acumuladas
-			 FROM calendarios_enfunde ce
-			 JOIN cintas c ON ce.color_id = c.id
-			 -- Unión vital: Buscamos el registro que le dio vida a este calendario
-			 JOIN registro_enfunde re ON ce.id = re.calendario_id 
-			 LEFT JOIN configuracion_crecimiento conf ON ce.finca_id = conf.finca_id
-			 WHERE ce.finca_id = $1 AND ce.saldo > 0 AND ce.estado = 'activo'`,
+		// 1. Obtener la meta de Unidades Calor (UC) para la finca
+		const config = await pool.query(
+			'SELECT unidades_calor_objetivo FROM configuracion_crecimiento WHERE finca_id = $1',
+			[finca_id],
+		);
+		const metaUC = config.rows[0]?.unidades_calor_objetivo || 900;
+
+		// 2. Consultar inventario real desde registro_enfunde
+		const inventario = await pool.query(
+			`
+      SELECT 
+        ce.id as calendario_id,
+        ce.semana as semana_enfunde,
+        ce.anio,
+        c.color as color_cinta,
+        c.codigo_hex as color_hex,
+        MIN(re.fecha) as fecha_inicio_enfunde,
+        (SUM(re.cantidad_racimos) - COALESCE(
+          (SELECT SUM(cantidad_racimos + cantidad_rechazo) 
+           FROM detalle_cosecha 
+           WHERE calendario_id = ce.id), 0
+        )) as saldo_racimos
+      FROM registro_enfunde re
+      JOIN calendarios_enfunde ce ON re.calendario_id = ce.id
+      JOIN cintas c ON ce.color_id = c.id
+      WHERE re.finca_id = $1
+      GROUP BY ce.id, ce.semana, ce.anio, c.color, c.codigo_hex
+      HAVING (SUM(re.cantidad_racimos) - COALESCE(
+        (SELECT SUM(cantidad_racimos + cantidad_rechazo) 
+         FROM detalle_cosecha 
+         WHERE calendario_id = ce.id), 0
+      )) > 0
+      ORDER BY ce.anio ASC, ce.semana ASC
+    `,
 			[finca_id],
 		);
 
-		if (queryMaster.rows.length === 0) {
-			return res
-				.status(404)
-				.json({ message: 'No hay cintas activas para esta finca.' });
-		}
+		// 3. Procesar proyecciones climáticas por cada cinta
+		const proyecciones = await Promise.all(
+			inventario.rows.map(async (lote) => {
+				const clima = await pool.query(
+					`SELECT SUM(unidades_calor_dia) as acumulado, AVG(unidades_calor_dia) as promedio
+           FROM historial_clima_fincas 
+           WHERE finca_id = $1 AND fecha >= $2`,
+					[finca_id, lote.fecha_inicio_enfunde],
+				);
 
-		const proyecciones = queryMaster.rows.map((cinta) => {
-			const acumulado = parseFloat(cinta.uc_acumuladas);
-			const meta = parseFloat(cinta.unidades_calor_objetivo || 1000);
-			const promedioDiario = parseFloat(cinta.promedio_uc_reciente || 12);
-			const ratio = parseFloat(cinta.ratio_estimado_cajas || 1.25);
+				const ucAcumuladas = parseFloat(clima.rows[0]?.acumulado || 0);
+				const promedioDiario = parseFloat(clima.rows[0]?.promedio || 12.5);
 
-			const faltante = Math.max(0, meta - acumulado);
-			const diasRestantes = Math.ceil(faltante / promedioDiario);
+				const porcentaje = Math.min(100, (ucAcumuladas / metaUC) * 100);
+				const faltantes = Math.max(0, metaUC - ucAcumuladas);
+				const diasParaCorte = Math.ceil(faltantes / promedioDiario);
 
-			const fechaEstimada = new Date();
-			fechaEstimada.setDate(fechaEstimada.getDate() + diasRestantes);
+				const fechaEstimada = new Date();
+				fechaEstimada.setDate(fechaEstimada.getDate() + diasParaCorte);
 
-			// Lógica de "Estado Biológico"
-			let alerta = 'Normal';
-			if (
-				diasRestantes < 7 &&
-				new Date().getDay() - new Date(cinta.fecha_enfunde).getDay() < 70
-			) {
-				alerta = 'Fruta acelerada por calor';
-			}
+				return {
+					calendario_id: lote.calendario_id,
+					semana_enfunde: lote.semana_enfunde,
+					anio: lote.anio,
+					color_cinta: lote.color_cinta,
+					color_hex: lote.color_hex,
+					saldo_racimos: lote.saldo_racimos,
+					progreso_madurez: porcentaje.toFixed(1),
+					dias_faltantes: diasParaCorte,
+					fecha_estimada: fechaEstimada.toISOString().split('T')[0],
+					cajas_esperadas: Math.floor(lote.saldo_racimos / 1.2), // Ratio ejemplo
+					mensaje_clima:
+						ucAcumuladas > metaUC * 0.8 ? 'Cerca de cosecha' : 'En desarrollo',
+				};
+			}),
+		);
 
-			return {
-				calendario_id: cinta.calendario_id,
-				color: cinta.color,
-				semana_enfunde: cinta.semana,
-				anio: cinta.anio,
-				saldo_racimos: cinta.saldo,
-				progreso_madurez: ((acumulado / meta) * 100).toFixed(1) + '%',
-				fecha_estimada: fechaEstimada.toISOString().split('T')[0],
-				dias_faltantes: diasRestantes,
-				cajas_esperadas: Math.floor(cinta.saldo * ratio),
-				mensaje_clima: alerta,
-			};
-		});
-
-		res.json({
-			finca_id,
-			timestamp: new Date(),
-			proyecciones,
-		});
+		res.json({ finca_id, proyecciones });
 	} catch (error) {
-		console.error('❌ ERROR EN PREDICCIÓN:', error);
-		res
-			.status(500)
-			.json({ message: 'Error interno en el servidor de predicción.' });
+		console.error('Error en Prediccion:', error);
+		res.status(500).json({ error: 'Error al calcular madurez' });
 	}
 };
