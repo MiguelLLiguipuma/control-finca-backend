@@ -80,7 +80,10 @@ export const obtenerPrediccionCosecha = async (req, res) => {
 
 		res.json({ finca_id, proyecciones });
 	} catch (error) {
-		console.error('Error en Prediccion:', error);
-		res.status(500).json({ error: 'Error al calcular madurez' });
+		console.error('DETALLE DEL ERROR:', error); // Esto se verá en los logs de Railway
+		res.status(500).json({
+			error: 'Error al calcular madurez',
+			detalles: error.message, // ESTO te dirá el nombre del error en el frontend
+		});
 	}
 };
