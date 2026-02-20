@@ -14,6 +14,7 @@ import registroRoutes from './src/routes/registroRoutes.js';
 import reporteRoutes from './src/routes/reporteRoutes.js';
 import authRoutes from './src/routes/authRoutes.js';
 import cosechaRoutes from './src/routes/cosecha/cosechaRoutes.js';
+import embarqueRoutes from './src/routes/embarqueRoutes.js';
 import { initWeatherWorker } from './src/workers/weatherWorker.js';
 
 // Configuración de entorno
@@ -43,6 +44,7 @@ app.use('/api/calendarios-enfunde', calendarioRoutes);
 
 app.use('/api/registros', registroRoutes);
 app.use('/api/cosecha', cosechaRoutes);
+app.use('/api/embarque', embarqueRoutes);
 app.use('/api/auth', authRoutes);
 
 // Puerto de servidor
