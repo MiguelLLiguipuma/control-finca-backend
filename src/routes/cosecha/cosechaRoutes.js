@@ -1,13 +1,14 @@
 import express from 'express';
-// Importaciones con rutas relativas corregidas
 import {
 	registrarCosecha,
 	getBalanceCampo,
 } from '../../controllers/cosecha/cosechaController.js';
-
 import { obtenerPrediccionCosecha } from '../../controllers/cosecha/prediccionController.js';
+import { verificarSesion } from '../../middlewares/auth.js';
 
 const router = express.Router();
+
+router.use(verificarSesion);
 
 /**
  * @route   POST /api/cosecha/registrar-liquidacion

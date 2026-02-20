@@ -1,15 +1,11 @@
+import crypto from 'crypto';
 import { pool } from '../../db/db.js';
 import { CosechaModel } from '../../models/cosecha/cosechaModel.js';
 
-const IDEMPOTENCIA_TTL_MS = 24 * 60 * 60 * 1000;
-const idempotenciaMemoria = new Map();
-
-function limpiarIdempotenciaExpirada() {
-	const ahora = Date.now();
-	for (const [idLocal, ts] of idempotenciaMemoria.entries()) {
-		if (ahora - ts > IDEMPOTENCIA_TTL_MS) idempotenciaMemoria.delete(idLocal);
-	}
-}
+const IDEMPOTENCIA_RETENCION_DIAS = 30;
+const LIMPIEZA_INTERVALO_MS = 60 * 60 * 1000;
+let ultimaLimpieza = 0;
+let schemaIdempotenciaInicializado;
 
 function crearError(message, status = 400) {
 	const error = new Error(message);
@@ -23,6 +19,17 @@ function toEnteroNoNegativo(valor) {
 	return Math.max(0, Math.trunc(num));
 }
 
+function validarFechaISO(fecha) {
+	return typeof fecha === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fecha);
+}
+
+function esUuid(val) {
+	if (typeof val !== 'string') return false;
+	return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+		val,
+	);
+}
+
 function normalizarDetalle(detalle) {
 	return {
 		calendario_id: Number(detalle.calendario_id),
@@ -31,14 +38,146 @@ function normalizarDetalle(detalle) {
 	};
 }
 
-function validarFechaISO(fecha) {
-	return typeof fecha === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fecha);
+function hashPayload(payload) {
+	return crypto
+		.createHash('sha256')
+		.update(JSON.stringify(payload))
+		.digest('hex');
+}
+
+async function asegurarTablaIdempotencia() {
+	if (!schemaIdempotenciaInicializado) {
+		schemaIdempotenciaInicializado = (async () => {
+			await pool.query(`
+				CREATE TABLE IF NOT EXISTS cosecha_idempotencia (
+					id_local UUID PRIMARY KEY,
+					payload_hash TEXT NOT NULL,
+					status TEXT NOT NULL CHECK (status IN ('processing', 'completed', 'failed')),
+					response_json JSONB,
+					error_message TEXT,
+					created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+					updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+				)
+			`);
+			await pool.query(`
+				CREATE INDEX IF NOT EXISTS idx_cosecha_idempotencia_status_updated
+				ON cosecha_idempotencia(status, updated_at DESC)
+			`);
+		})();
+	}
+	await schemaIdempotenciaInicializado;
+}
+
+async function limpiarIdempotenciaAntiguaSiAplica() {
+	const ahora = Date.now();
+	if (ahora - ultimaLimpieza < LIMPIEZA_INTERVALO_MS) return;
+	ultimaLimpieza = ahora;
+
+	await pool.query(
+		`DELETE FROM cosecha_idempotencia
+     WHERE updated_at < NOW() - ($1::text || ' days')::interval`,
+		[String(IDEMPOTENCIA_RETENCION_DIAS)],
+	);
+}
+
+async function reservarIdempotencia(idLocal, payloadHash) {
+	await asegurarTablaIdempotencia();
+	await limpiarIdempotenciaAntiguaSiAplica();
+
+	const insertRes = await pool.query(
+		`INSERT INTO cosecha_idempotencia (id_local, payload_hash, status)
+     VALUES ($1, $2, 'processing')
+     ON CONFLICT (id_local) DO NOTHING
+     RETURNING id_local`,
+		[idLocal, payloadHash],
+	);
+
+	if (insertRes.rows.length) {
+		return { reservar: true };
+	}
+
+	const existenteRes = await pool.query(
+		`SELECT id_local, payload_hash, status, response_json
+     FROM cosecha_idempotencia
+     WHERE id_local = $1`,
+		[idLocal],
+	);
+
+	if (!existenteRes.rows.length) {
+		throw crearError('No se pudo verificar idempotencia', 500);
+	}
+
+	const existente = existenteRes.rows[0];
+
+	if (existente.payload_hash !== payloadHash) {
+		throw crearError(
+			'El id_local ya fue usado con un payload distinto',
+			409,
+		);
+	}
+
+	if (existente.status === 'completed') {
+		return {
+			reservar: false,
+			duplicated: true,
+			response: existente.response_json || null,
+		};
+	}
+
+	if (existente.status === 'processing') {
+		throw crearError('La liquidacion ya esta en procesamiento', 409);
+	}
+
+	const retryRes = await pool.query(
+		`UPDATE cosecha_idempotencia
+     SET status = 'processing',
+         error_message = NULL,
+         updated_at = NOW()
+     WHERE id_local = $1
+       AND status = 'failed'
+       AND payload_hash = $2
+     RETURNING id_local`,
+		[idLocal, payloadHash],
+	);
+
+	if (!retryRes.rows.length) {
+		throw crearError('No fue posible retomar la liquidacion', 409);
+	}
+
+	return { reservar: true };
+}
+
+async function marcarIdempotenciaCompletada(idLocal, responseObj) {
+	if (!idLocal) return;
+	await pool.query(
+		`UPDATE cosecha_idempotencia
+     SET status = 'completed',
+         response_json = $2::jsonb,
+         error_message = NULL,
+         updated_at = NOW()
+     WHERE id_local = $1`,
+		[idLocal, JSON.stringify(responseObj || {})],
+	);
+}
+
+async function marcarIdempotenciaFallida(idLocal, errorMessage) {
+	if (!idLocal) return;
+	try {
+		await pool.query(
+			`UPDATE cosecha_idempotencia
+       SET status = 'failed',
+           error_message = $2,
+           updated_at = NOW()
+       WHERE id_local = $1`,
+			[idLocal, errorMessage || 'Error desconocido'],
+		);
+	} catch {
+		// No interrumpimos el flujo por fallo de trazabilidad
+	}
 }
 
 export const CosechaService = {
 	procesarLiquidacion: async (payload) => {
-		limpiarIdempotenciaExpirada();
-
 		const { id_local, finca_id, fecha, usuario_id, detalles } = payload || {};
 		const fincaId = Number(finca_id);
 		const usuarioId = Number(usuario_id);
@@ -52,12 +191,8 @@ export const CosechaService = {
 			throw crearError('detalles debe contener al menos un elemento', 400);
 		}
 
-		if (id_local && idempotenciaMemoria.has(id_local)) {
-			return {
-				duplicated: true,
-				id_local,
-				registros: [],
-			};
+		if (id_local && !esUuid(id_local)) {
+			throw crearError('id_local invalido, debe ser UUID', 400);
 		}
 
 		const detallesNormalizados = detalles
@@ -71,6 +206,31 @@ export const CosechaService = {
 		for (const d of detallesNormalizados) {
 			if (!Number.isInteger(d.calendario_id) || d.calendario_id <= 0) {
 				throw crearError('calendario_id inválido en detalles', 400);
+			}
+		}
+
+		const payloadCanonico = {
+			finca_id: fincaId,
+			fecha,
+			usuario_id: usuarioId,
+			detalles: [...detallesNormalizados].sort(
+				(a, b) => a.calendario_id - b.calendario_id,
+			),
+		};
+		const payloadHash = hashPayload(payloadCanonico);
+
+		if (id_local) {
+			const estadoIdempotencia = await reservarIdempotencia(
+				id_local,
+				payloadHash,
+			);
+
+			if (estadoIdempotencia.duplicated) {
+				return {
+					duplicated: true,
+					id_local,
+					...(estadoIdempotencia.response || { registros: [] }),
+				};
 			}
 		}
 
@@ -125,17 +285,20 @@ export const CosechaService = {
 
 			await client.query('COMMIT');
 
-			if (id_local) {
-				idempotenciaMemoria.set(id_local, Date.now());
-			}
+			const responseObj = {
+				registros,
+				total: registros.length,
+			};
+			await marcarIdempotenciaCompletada(id_local, responseObj);
 
 			return {
 				duplicated: false,
 				id_local,
-				registros,
+				...responseObj,
 			};
 		} catch (error) {
 			await client.query('ROLLBACK');
+			await marcarIdempotenciaFallida(id_local, error.message);
 			throw error;
 		} finally {
 			client.release();
