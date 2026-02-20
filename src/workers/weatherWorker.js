@@ -1,6 +1,14 @@
 import cron from 'node-cron';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc.js';
+import timezone from 'dayjs/plugin/timezone.js';
 import { pool } from '../db/db.js';
 import { syncWeatherForFinca } from '../services/clima/weather.service.js';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+const WEATHER_TZ = 'America/Guayaquil';
 
 export const initWeatherWorker = () => {
 	// 23:55 para cerrar el día con datos consolidados
@@ -8,7 +16,7 @@ export const initWeatherWorker = () => {
 		'55 23 * * *',
 		async () => {
 			console.log('--- 🌏 INICIANDO BARRIDO CLIMÁTICO ---');
-			const hoy = new Date().toISOString().split('T')[0];
+			const hoy = dayjs().tz(WEATHER_TZ).format('YYYY-MM-DD');
 
 			try {
 				const { rows: fincas } = await pool.query(
@@ -18,20 +26,26 @@ export const initWeatherWorker = () => {
 				if (fincas.length === 0)
 					return console.log('ℹ️ No hay fincas con GPS.');
 
+				let exitos = 0;
+				let fallidos = 0;
 				for (const finca of fincas) {
 					// Pasamos 'hoy' para que el servicio use una fecha consistente
-					await syncWeatherForFinca(finca, hoy);
+					const resultado = await syncWeatherForFinca(finca, hoy);
+					if (resultado?.ok) exitos += 1;
+					else fallidos += 1;
 
 					// Rate Limiting para OpenWeather (1.5s entre llamadas)
 					await new Promise((resolve) => setTimeout(resolve, 1500));
 				}
-				console.log('--- ✅ PROCESO COMPLETADO ---');
+				console.log(
+					`--- ✅ PROCESO COMPLETADO --- Exitos: ${exitos} | Fallidos: ${fallidos}`,
+				);
 			} catch (err) {
 				console.error('❌ ERROR CRÍTICO EN WORKER:', err.message);
 			}
 		},
 		{
-			timezone: 'America/Guayaquil',
+			timezone: WEATHER_TZ,
 		},
 	);
 };

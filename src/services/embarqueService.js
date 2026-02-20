@@ -26,6 +26,30 @@ function validarFechaISO(fecha) {
 	return typeof fecha === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fecha);
 }
 
+function normalizarFechaISO(fecha) {
+	if (fecha instanceof Date && !Number.isNaN(fecha.getTime())) {
+		return fecha.toISOString().slice(0, 10);
+	}
+
+	if (typeof fecha !== 'string') return null;
+	const raw = fecha.trim();
+	if (!raw) return null;
+
+	const matchIsoPrefix = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+	if (matchIsoPrefix) return matchIsoPrefix[1];
+
+	return null;
+}
+
+function parsearFincaIds(input) {
+	if (input === undefined || input === null || input === '') return [];
+	const valores = Array.isArray(input) ? input : String(input).split(',');
+	const ids = valores
+		.map((v) => Number(String(v).trim()))
+		.filter((n) => Number.isInteger(n) && n > 0);
+	return Array.from(new Set(ids));
+}
+
 function esUuid(val) {
 	if (typeof val !== 'string') return false;
 	return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -378,7 +402,7 @@ async function obtenerVoucherPorId(clientOrPool, voucherId) {
 	return {
 		id: Number(h.id),
 		numero_voucher: h.numero_voucher,
-		fecha_embarque: h.fecha_embarque,
+		fecha_embarque: normalizarFechaISO(h.fecha_embarque),
 		semana_corte: h.semana_corte,
 		estado: h.estado,
 		observaciones: h.observaciones,
@@ -408,17 +432,25 @@ async function registrarAuditoria(client, embarqueId, accion, usuarioId, detalle
 }
 
 export const EmbarqueService = {
-	async getPreliquidacion({ fecha, finca_id }) {
+	async getPreliquidacion({ fecha, finca_id, finca_ids }) {
 		await asegurarSchema();
-		if (!validarFechaISO(fecha)) {
+		const fechaISO = normalizarFechaISO(fecha);
+		if (!fechaISO || !validarFechaISO(fechaISO)) {
 			throw crearError('fecha debe estar en formato YYYY-MM-DD', 400);
 		}
 
-		const params = [fecha];
+		const params = [fechaISO];
 		let filtroFinca = '';
-		if (finca_id) {
-			params.push(Number(finca_id));
-			filtroFinca = ' AND rc.finca_id = $2';
+		const fincaIds = parsearFincaIds(finca_ids);
+		if (finca_id && Number(finca_id) > 0 && !fincaIds.length) {
+			fincaIds.push(Number(finca_id));
+		}
+		if (fincaIds.length === 1) {
+			params.push(fincaIds[0]);
+			filtroFinca = ` AND rc.finca_id = $${params.length}`;
+		} else if (fincaIds.length > 1) {
+			params.push(fincaIds);
+			filtroFinca = ` AND rc.finca_id = ANY($${params.length}::int[])`;
 		}
 
 		const sql = `
@@ -466,7 +498,7 @@ export const EmbarqueService = {
 			{ racimos_buenos: 0, racimos_rechazo: 0, total_racimos: 0 },
 		);
 
-		return { fecha, lineas, totales };
+		return { fecha: fechaISO, lineas, totales };
 	},
 
 	async crearVoucher(payload, contexto = {}) {
@@ -474,7 +506,8 @@ export const EmbarqueService = {
 		const { fecha_embarque, semana_corte, observaciones, detalles } = payload || {};
 		const usuarioId = Number(contexto.usuarioIdSesion);
 		if (!usuarioId) throw crearError('Sesion invalida: usuario no autenticado', 401);
-		if (!validarFechaISO(fecha_embarque)) {
+		const fechaEmbarqueISO = normalizarFechaISO(fecha_embarque);
+		if (!fechaEmbarqueISO || !validarFechaISO(fechaEmbarqueISO)) {
 			throw crearError('fecha_embarque debe estar en formato YYYY-MM-DD', 400);
 		}
 
@@ -488,7 +521,7 @@ export const EmbarqueService = {
 		const client = await pool.connect();
 		try {
 			await client.query('BEGIN');
-			const numeroVoucher = await generarNumeroVoucher(client, fecha_embarque);
+			const numeroVoucher = await generarNumeroVoucher(client, fechaEmbarqueISO);
 			const ins = await client.query(
 				`INSERT INTO embarques (
           numero_voucher, fecha_embarque, semana_corte, estado,
@@ -503,7 +536,7 @@ export const EmbarqueService = {
         ) RETURNING id`,
 				[
 					numeroVoucher,
-					fecha_embarque,
+					fechaEmbarqueISO,
 					semanaCorte,
 					totales.total_racimos_buenos,
 					totales.total_racimos_rechazo,
@@ -738,28 +771,40 @@ export const EmbarqueService = {
 		const where = [];
 
 		if (filtros.fecha_desde) {
-			if (!validarFechaISO(filtros.fecha_desde)) {
+			const fechaDesdeISO = normalizarFechaISO(filtros.fecha_desde);
+			if (!fechaDesdeISO || !validarFechaISO(fechaDesdeISO)) {
 				throw crearError('fecha_desde invalida (YYYY-MM-DD)', 400);
 			}
-			params.push(filtros.fecha_desde);
+			params.push(fechaDesdeISO);
 			where.push(`e.fecha_embarque >= $${params.length}`);
 		}
 		if (filtros.fecha_hasta) {
-			if (!validarFechaISO(filtros.fecha_hasta)) {
+			const fechaHastaISO = normalizarFechaISO(filtros.fecha_hasta);
+			if (!fechaHastaISO || !validarFechaISO(fechaHastaISO)) {
 				throw crearError('fecha_hasta invalida (YYYY-MM-DD)', 400);
 			}
-			params.push(filtros.fecha_hasta);
+			params.push(fechaHastaISO);
 			where.push(`e.fecha_embarque <= $${params.length}`);
 		}
 		if (filtros.estado) {
 			params.push(String(filtros.estado).toUpperCase());
 			where.push(`e.estado = $${params.length}`);
 		}
-		if (filtros.finca_id) {
-			params.push(Number(filtros.finca_id));
+		const fincaIds = parsearFincaIds(filtros.finca_ids);
+		if (filtros.finca_id && Number(filtros.finca_id) > 0 && !fincaIds.length) {
+			fincaIds.push(Number(filtros.finca_id));
+		}
+		if (fincaIds.length === 1) {
+			params.push(fincaIds[0]);
 			where.push(`EXISTS (
         SELECT 1 FROM embarque_detalles d
         WHERE d.embarque_id = e.id AND d.finca_id = $${params.length}
+      )`);
+		} else if (fincaIds.length > 1) {
+			params.push(fincaIds);
+			where.push(`EXISTS (
+        SELECT 1 FROM embarque_detalles d
+        WHERE d.embarque_id = e.id AND d.finca_id = ANY($${params.length}::int[])
       )`);
 		}
 
@@ -782,7 +827,7 @@ export const EmbarqueService = {
 			items: res.rows.map((r) => ({
 				id: Number(r.id),
 				numero_voucher: r.numero_voucher,
-				fecha_embarque: r.fecha_embarque,
+				fecha_embarque: normalizarFechaISO(r.fecha_embarque),
 				estado: r.estado,
 				total_racimos: Number(r.total_racimos || 0),
 				total_cajas: Number(r.total_cajas || 0),
