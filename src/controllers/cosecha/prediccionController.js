@@ -5,19 +5,42 @@ export const obtenerPrediccionCosecha = async (req, res) => {
 	try {
 		const configData = await pool.query(
 			`SELECT
-        (SELECT unidades_calor_objetivo FROM configuracion_crecimiento WHERE finca_id = $1 LIMIT 1) as meta,
-        (SELECT AVG(unidades_calor_dia) FROM (
-            SELECT unidades_calor_dia FROM historial_clima_fincas
-            WHERE finca_id = $1 ORDER BY fecha DESC LIMIT 7
-         ) as tendencias) as promedio_reciente`,
+        cc.unidades_calor_objetivo AS meta,
+        cc.semana_inicio,
+        cc.semana_fin,
+        (
+          SELECT AVG(unidades_calor_dia)
+          FROM (
+            SELECT unidades_calor_dia
+            FROM historial_clima_fincas
+            WHERE finca_id = $1
+            ORDER BY fecha DESC
+            LIMIT 7
+          ) AS tendencias
+        ) AS promedio_reciente
+      FROM configuracion_crecimiento cc
+      WHERE cc.finca_id = $1
+      LIMIT 1`,
 			[finca_id],
 		);
 
-		const metaBase = Number(configData.rows[0]?.meta);
-		const promedioBase = Number(configData.rows[0]?.promedio_reciente);
+		const row = configData.rows[0] || {};
+		const metaBase = Number(row.meta);
+		const promedioBase = Number(row.promedio_reciente);
+		const semanaInicioBase = Number(row.semana_inicio);
+		const semanaFinBase = Number(row.semana_fin);
 		const metaUC = Number.isFinite(metaBase) && metaBase > 0 ? metaBase : 900;
 		const promedioUC =
 			Number.isFinite(promedioBase) && promedioBase > 0 ? promedioBase : 12.8;
+		const semanaInicio =
+			Number.isFinite(semanaInicioBase) && semanaInicioBase >= 1 && semanaInicioBase <= 52
+				? Math.trunc(semanaInicioBase)
+				: 11;
+		const semanaFinPropuesta =
+			Number.isFinite(semanaFinBase) && semanaFinBase >= 1 && semanaFinBase <= 52
+				? Math.trunc(semanaFinBase)
+				: 13;
+		const semanaFin = Math.max(semanaInicio, semanaFinPropuesta);
 
 		const inventario = await pool.query(
 			`SELECT
@@ -90,6 +113,8 @@ export const obtenerPrediccionCosecha = async (req, res) => {
 			finca_id,
 			meta_aplicada: metaUC,
 			promedio_climatico_semanal: promedioUC.toFixed(2),
+			semana_inicio: semanaInicio,
+			semana_fin: semanaFin,
 			proyecciones,
 		});
 	} catch (error) {
