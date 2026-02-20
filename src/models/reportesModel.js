@@ -5,7 +5,7 @@ export const ReportesModel = {
 		const { rows } = await query(
 			`SELECT *
        FROM vw_total_anual_finca
-       WHERE finca_id = $1 AND anio = $2;`, // ✅ Filtro doble añadido
+       WHERE finca_id = $1 AND anio = $2;`,
 			[fincaId, anio],
 		);
 		return rows;
@@ -16,7 +16,7 @@ export const ReportesModel = {
 			`SELECT *
        FROM vw_total_mensual
        WHERE finca_id = $1 AND anio = $2
-       ORDER BY mes_num;`, // ✅ Filtro doble añadido
+       ORDER BY mes_num;`,
 			[fincaId, anio],
 		);
 		return rows;
@@ -39,14 +39,13 @@ export const ReportesModel = {
        FROM vw_mejor_semana_por_año
        WHERE finca_id = $1 AND anio = $2
        ORDER BY total_fundas DESC
-       LIMIT 1;`, // ✅ Filtro por finca añadido
+       LIMIT 1;`,
 			[fincaId, anio],
 		);
 		return rows;
 	},
 
 	async obtenerBajasProduccion(fincaId) {
-		// Asumiendo que vw_bajas_produccion ya tiene la columna finca_id
 		const { rows } = await query(
 			'SELECT * FROM vw_bajas_produccion WHERE finca_id = $1;',
 			[fincaId],
@@ -63,10 +62,12 @@ export const ReportesModel = {
 	},
 
 	async obtenerPromedioSemanalPorFinca(fincaId, anio) {
+		// Blindado: calcula promedio semanal directamente sobre el agregado semanal.
+		// Así no depende de columnas opcionales de otras vistas.
 		const { rows } = await query(
-			`SELECT *
-       FROM vw_total_anual_finca
-       WHERE finca_id = $1 AND anio = $2;`, // Usamos la vista corregida anteriormente
+			`SELECT COALESCE(ROUND(AVG(total_semana)::numeric, 2), 0) AS promedio_semanal
+       FROM vw_total_semanal
+       WHERE finca_id = $1 AND anio = $2;`,
 			[fincaId, anio],
 		);
 		return rows;
@@ -77,7 +78,7 @@ export const ReportesModel = {
 			`SELECT *
        FROM vw_total_semanal
        WHERE finca_id = $1 AND anio = $2
-       ORDER BY semana ASC `,
+       ORDER BY semana ASC`,
 			[fincaId, anio],
 		);
 		return rows;
