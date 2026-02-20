@@ -31,7 +31,7 @@ export const CalendarioModel = {
 			[semana, anio, color_id, empresa_id, estado],
 		),
 
-	// 5. [NUEVO] Limpiar año completo para una empresa (Para re-generar sin error)
+	// 5. Limpiar año completo para una empresa
 	deleteByAnioEmpresa: (anio, empresa_id) =>
 		query(`DELETE FROM calendarios_enfunde WHERE anio=$1 AND empresa_id=$2`, [
 			anio,
@@ -54,6 +54,7 @@ export const CalendarioModel = {
 	// 7. Eliminar
 	remove: (id) => query('DELETE FROM calendarios_enfunde WHERE id=$1', [id]),
 
-	// En src/models/calendarioModel.js
+	// 8. Resumen anual
+	getResumen: () => query(`SELECT * FROM vista_resumen_calendarios`),
 	obtenerResumenAnual: () => query(`SELECT * FROM vista_resumen_calendarios`),
 };
