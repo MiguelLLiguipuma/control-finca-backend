@@ -2,7 +2,9 @@ import { CosechaService } from '../../services/cosecha/cosechaService.js';
 
 export const registrarCosecha = async (req, res) => {
 	try {
-		const data = await CosechaService.procesarLiquidacion(req.body);
+		const data = await CosechaService.procesarLiquidacion(req.body, {
+			usuarioIdSesion: req.user?.id,
+		});
 		if (data.duplicated) {
 			return res.status(200).json({
 				success: true,

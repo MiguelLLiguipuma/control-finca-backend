@@ -177,13 +177,13 @@ async function marcarIdempotenciaFallida(idLocal, errorMessage) {
 }
 
 export const CosechaService = {
-	procesarLiquidacion: async (payload) => {
-		const { id_local, finca_id, fecha, usuario_id, detalles } = payload || {};
+	procesarLiquidacion: async (payload, contexto = {}) => {
+		const { id_local, finca_id, fecha, detalles } = payload || {};
 		const fincaId = Number(finca_id);
-		const usuarioId = Number(usuario_id);
+		const usuarioId = Number(contexto.usuarioIdSesion);
 
 		if (!fincaId) throw crearError('finca_id es requerido', 400);
-		if (!usuarioId) throw crearError('usuario_id es requerido', 400);
+		if (!usuarioId) throw crearError('Sesión inválida: usuario no autenticado', 401);
 		if (!validarFechaISO(fecha)) {
 			throw crearError('fecha debe estar en formato YYYY-MM-DD', 400);
 		}
