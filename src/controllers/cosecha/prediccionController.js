@@ -10,10 +10,37 @@ const TZ = 'America/Guayaquil';
 const META_UC_DEFAULT = 900;
 const PROMEDIO_UC_DEFAULT = 12.8;
 const RATIO_CAJAS_DEFAULT = 1.05;
+const SEMANA_CORTE_DEFAULT_INICIO = 11;
+const SEMANA_CORTE_DEFAULT_FIN = 13;
+const VENTANA_CORTE_MAX_AMPLITUD = 8;
 
 function toPositiveNumber(value, fallback) {
 	const n = Number(value);
 	return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function sanitizarVentanaCorte(semanaInicioRaw, semanaFinRaw) {
+	const inicioParsed = Number(semanaInicioRaw);
+	const finParsed = Number(semanaFinRaw);
+	const inicioValido =
+		Number.isFinite(inicioParsed) && inicioParsed >= 1 && inicioParsed <= 52
+			? Math.trunc(inicioParsed)
+			: SEMANA_CORTE_DEFAULT_INICIO;
+	const finValido =
+		Number.isFinite(finParsed) && finParsed >= 1 && finParsed <= 52
+			? Math.trunc(finParsed)
+			: SEMANA_CORTE_DEFAULT_FIN;
+
+	const inicio = Math.min(inicioValido, finValido);
+	const fin = Math.max(inicioValido, finValido);
+	if (fin - inicio > VENTANA_CORTE_MAX_AMPLITUD) {
+		return {
+			inicio: SEMANA_CORTE_DEFAULT_INICIO,
+			fin: SEMANA_CORTE_DEFAULT_FIN,
+		};
+	}
+
+	return { inicio, fin };
 }
 
 export const obtenerPrediccionCosecha = async (req, res) => {
@@ -60,17 +87,9 @@ export const obtenerPrediccionCosecha = async (req, res) => {
 			row.ratio_cajas_racimo,
 			RATIO_CAJAS_DEFAULT,
 		);
-		const semanaInicioBase = Number(row.semana_inicio);
-		const semanaFinBase = Number(row.semana_fin);
-		const semanaInicio =
-			Number.isFinite(semanaInicioBase) && semanaInicioBase >= 1 && semanaInicioBase <= 52
-				? Math.trunc(semanaInicioBase)
-				: 11;
-		const semanaFinPropuesta =
-			Number.isFinite(semanaFinBase) && semanaFinBase >= 1 && semanaFinBase <= 52
-				? Math.trunc(semanaFinBase)
-				: 13;
-		const semanaFin = Math.max(semanaInicio, semanaFinPropuesta);
+			const ventana = sanitizarVentanaCorte(row.semana_inicio, row.semana_fin);
+			const semanaInicio = ventana.inicio;
+			const semanaFin = ventana.fin;
 
 		const inventario = await pool.query(
 			`WITH base AS (
