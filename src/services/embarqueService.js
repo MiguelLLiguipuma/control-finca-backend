@@ -790,6 +790,20 @@ export const EmbarqueService = {
 			params.push(String(filtros.estado).toUpperCase());
 			where.push(`e.estado = $${params.length}`);
 		}
+		if (filtros.numero_voucher) {
+			const numeroVoucher = String(filtros.numero_voucher || '').trim();
+			if (numeroVoucher) {
+				const exacto =
+					String(filtros.numero_voucher_exacto || '').toLowerCase() === 'true' ||
+					filtros.numero_voucher_exacto === true;
+				params.push(exacto ? numeroVoucher : `%${numeroVoucher}%`);
+				where.push(
+					exacto
+						? `UPPER(e.numero_voucher) = UPPER($${params.length})`
+						: `UPPER(e.numero_voucher) LIKE UPPER($${params.length})`,
+				);
+			}
+		}
 		const fincaIds = parsearFincaIds(filtros.finca_ids);
 		if (filtros.finca_id && Number(filtros.finca_id) > 0 && !fincaIds.length) {
 			fincaIds.push(Number(filtros.finca_id));
