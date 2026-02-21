@@ -2,6 +2,7 @@ import express from 'express';
 import {
 	registrarCosecha,
 	getBalanceCampo,
+	getFechasOcupadas,
 } from '../../controllers/cosecha/cosechaController.js';
 import { obtenerPrediccionCosecha } from '../../controllers/cosecha/prediccionController.js';
 import { verificarSesion } from '../../middlewares/auth.js';
@@ -21,6 +22,7 @@ router.post('/registrar-liquidacion', registrarCosecha);
  * @desc    Obtiene el balance de inventario plano (Legacy/Compatibilidad).
  */
 router.get('/balance/:fincaId', getBalanceCampo);
+router.get('/fechas-ocupadas', getFechasOcupadas);
 
 /**
  * @route   GET /api/cosecha/prediccion/:finca_id

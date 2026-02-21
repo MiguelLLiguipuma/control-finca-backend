@@ -23,6 +23,37 @@ function validarFechaISO(fecha) {
 	return typeof fecha === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fecha);
 }
 
+function normalizarFechaISO(fecha) {
+	if (fecha instanceof Date && !Number.isNaN(fecha.getTime())) {
+		return fecha.toISOString().slice(0, 10);
+	}
+	if (typeof fecha !== 'string') return null;
+	const raw = fecha.trim();
+	const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+	return match ? match[1] : null;
+}
+
+function parsearFincaIds(inputIds, inputId) {
+	const ids = new Set();
+
+	if (Array.isArray(inputIds)) {
+		for (const value of inputIds) {
+			const n = Number(value);
+			if (Number.isInteger(n) && n > 0) ids.add(n);
+		}
+	} else if (typeof inputIds === 'string') {
+		for (const part of inputIds.split(',')) {
+			const n = Number(String(part).trim());
+			if (Number.isInteger(n) && n > 0) ids.add(n);
+		}
+	}
+
+	const single = Number(inputId);
+	if (Number.isInteger(single) && single > 0) ids.add(single);
+
+	return Array.from(ids);
+}
+
 function esUuid(val) {
 	if (typeof val !== 'string') return false;
 	return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -307,5 +338,75 @@ export const CosechaService = {
 
 	obtenerEstadoInventario: async (fincaId) => {
 		return await CosechaModel.obtenerBalancePorFinca(fincaId);
+	},
+
+	obtenerFechasOcupadas: async (query = {}) => {
+		const fincaIds = parsearFincaIds(query.finca_ids, query.finca_id);
+		if (!fincaIds.length) {
+			throw crearError('Debe enviar finca_id o finca_ids valido(s)', 400);
+		}
+
+		const fechaHastaNormalizada =
+			normalizarFechaISO(query.fecha_hasta) || new Date().toISOString().slice(0, 10);
+		const fechaDesdeNormalizada =
+			normalizarFechaISO(query.fecha_desde) ||
+			new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+		if (
+			!validarFechaISO(fechaDesdeNormalizada) ||
+			!validarFechaISO(fechaHastaNormalizada)
+		) {
+			throw crearError('fecha_desde/fecha_hasta invalidas (YYYY-MM-DD)', 400);
+		}
+
+		const cosechaRes = await pool.query(
+			`SELECT DISTINCT rc.fecha::date AS fecha
+       FROM registro_cosecha rc
+       WHERE rc.finca_id = ANY($1::int[])
+         AND rc.fecha BETWEEN $2 AND $3
+       ORDER BY rc.fecha ASC`,
+			[fincaIds, fechaDesdeNormalizada, fechaHastaNormalizada],
+		);
+
+		const voucherRes = await pool.query(
+			`SELECT DISTINCT e.fecha_embarque::date AS fecha
+       FROM embarques e
+       WHERE e.fecha_embarque BETWEEN $2 AND $3
+         AND EXISTS (
+           SELECT 1
+           FROM embarque_detalles d
+           WHERE d.embarque_id = e.id
+             AND d.finca_id = ANY($1::int[])
+         )
+       ORDER BY e.fecha_embarque ASC`,
+			[fincaIds, fechaDesdeNormalizada, fechaHastaNormalizada],
+		);
+
+		const mapFechas = new Map();
+		for (const row of cosechaRes.rows) {
+			const fecha = normalizarFechaISO(row.fecha);
+			if (!fecha) continue;
+			const entry = mapFechas.get(fecha) || { fecha, cosecha: false, voucher: false };
+			entry.cosecha = true;
+			mapFechas.set(fecha, entry);
+		}
+		for (const row of voucherRes.rows) {
+			const fecha = normalizarFechaISO(row.fecha);
+			if (!fecha) continue;
+			const entry = mapFechas.get(fecha) || { fecha, cosecha: false, voucher: false };
+			entry.voucher = true;
+			mapFechas.set(fecha, entry);
+		}
+
+		const fechas = Array.from(mapFechas.values()).sort((a, b) =>
+			a.fecha.localeCompare(b.fecha),
+		);
+
+		return {
+			finca_ids: fincaIds,
+			fecha_desde: fechaDesdeNormalizada,
+			fecha_hasta: fechaHastaNormalizada,
+			fechas,
+		};
 	},
 };

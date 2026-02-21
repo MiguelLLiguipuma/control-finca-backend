@@ -41,3 +41,19 @@ export const getBalanceCampo = async (req, res) => {
 		});
 	}
 };
+
+export const getFechasOcupadas = async (req, res) => {
+	try {
+		const data = await CosechaService.obtenerFechasOcupadas(req.query || {});
+		res.json({ success: true, data });
+	} catch (error) {
+		const status = Number(error?.status) || 500;
+		if (status >= 500) {
+			console.error('Error getFechasOcupadas:', error);
+		}
+		res.status(status).json({
+			success: false,
+			error: error?.message || 'Error interno del servidor',
+		});
+	}
+};
