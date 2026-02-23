@@ -15,6 +15,9 @@ import authRoutes from './src/routes/authRoutes.js';
 import cosechaRoutes from './src/routes/cosecha/cosechaRoutes.js';
 import embarqueRoutes from './src/routes/embarqueRoutes.js';
 import { createRateLimit } from './src/middlewares/rateLimitSimple.js';
+import { requestContext } from './src/middlewares/requestContext.js';
+import { requestLogger } from './src/middlewares/requestLogger.js';
+import { logger } from './src/utils/logger.js';
 import { initWeatherWorker } from './src/workers/weatherWorker.js';
 
 dotenv.config();
@@ -44,6 +47,7 @@ const apiLimiter = createRateLimit({
 	message: 'Demasiadas solicitudes. Espere unos minutos e intente nuevamente.',
 });
 
+app.use(requestContext);
 app.use(
 	cors({
 		origin(origin, callback) {
@@ -52,11 +56,12 @@ app.use(
 			return callback(new Error('Origen no permitido por CORS'));
 		},
 		methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-		allowedHeaders: ['Content-Type', 'Authorization'],
+		allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id'],
 	}),
 );
 app.use(express.json({ limit: '1mb' }));
 app.use('/api', apiLimiter);
+app.use(requestLogger);
 
 app.get('/debug', (req, res) => {
 	res.json({ status: 'OK', message: 'Si ves esto, el servidor funciona' });
@@ -74,26 +79,34 @@ app.use('/api/cosecha', cosechaRoutes);
 app.use('/api/embarque', embarqueRoutes);
 app.use('/api/auth', authRoutes);
 
-app.use((err, _req, res, _next) => {
+app.use((err, req, res, _next) => {
 	if (String(err?.message || '').includes('CORS')) {
+		logger.warn('cors_blocked', { request_id: req.requestId, origin: req.headers.origin || null });
 		return res.status(403).json({ message: 'Origen no autorizado' });
 	}
+
+	logger.error('unhandled_error', {
+		request_id: req.requestId,
+		path: req.originalUrl,
+		method: req.method,
+		error: err?.message || 'unknown',
+	});
 	return res.status(500).json({ message: 'Error interno del servidor' });
 });
 
 const PORT = process.env.PORT || 4000;
 
 app.listen(PORT, async () => {
-	console.log(`✅ Servidor backend en ejecución: http://localhost:${PORT}`);
+	logger.info('server_started', { port: PORT });
 
 	try {
 		const client = await pool.connect();
-		console.log('✅ Conectado correctamente a PostgreSQL');
+		logger.info('db_connected');
 		client.release();
 
 		initWeatherWorker();
-		console.log('☀️ Motor de sincronización climática activado');
+		logger.info('weather_worker_started');
 	} catch (err) {
-		console.error('❌ Error al conectar con la base de datos:', err.message);
+		logger.error('db_connection_error', { error: err.message });
 	}
 });
