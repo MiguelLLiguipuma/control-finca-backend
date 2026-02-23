@@ -5,6 +5,7 @@ const IDEMPOTENCIA_RETENCION_DIAS = 30;
 const LIMPIEZA_INTERVALO_MS = 60 * 60 * 1000;
 let ultimaLimpieza = 0;
 let schemaInicializado;
+const ALLOW_RUNTIME_DDL = String(process.env.ALLOW_RUNTIME_DDL || 'false').toLowerCase() === 'true';
 
 function crearError(message, status = 400) {
 	const error = new Error(message);
@@ -126,9 +127,39 @@ function calcularTotales(detalles) {
 	return base;
 }
 
+async function obtenerTablasFaltantes(tablas) {
+	const faltantes = [];
+	for (const tabla of tablas) {
+		const r = await pool.query('SELECT to_regclass($1) AS reg', [
+			`public.${tabla}`,
+		]);
+		if (!r.rows?.[0]?.reg) faltantes.push(tabla);
+	}
+	return faltantes;
+}
+
 async function asegurarSchema() {
 	if (!schemaInicializado) {
 		schemaInicializado = (async () => {
+			const faltantes = await obtenerTablasFaltantes([
+				'embarques',
+				'embarque_detalles',
+				'embarque_auditoria',
+				'embarque_idempotencia',
+			]);
+			if (!faltantes.length) return;
+
+			if (!ALLOW_RUNTIME_DDL) {
+				throw crearError(
+					`Esquema incompleto: faltan tablas [${faltantes.join(', ')}]. Ejecute: npm run migrate`,
+					500,
+				);
+			}
+
+			console.warn(
+				`[DDL-RUNTIME] Creando tablas faltantes de embarque: ${faltantes.join(', ')}`,
+			);
+
 			await pool.query(`
 				CREATE TABLE IF NOT EXISTS embarques (
 					id BIGSERIAL PRIMARY KEY,
@@ -154,12 +185,10 @@ async function asegurarSchema() {
 					updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 				)
 			`);
-
 			await pool.query(`
 				CREATE INDEX IF NOT EXISTS idx_embarques_fecha_estado
 				ON embarques (fecha_embarque, estado)
 			`);
-
 			await pool.query(`
 				CREATE TABLE IF NOT EXISTS embarque_detalles (
 					id BIGSERIAL PRIMARY KEY,
@@ -179,12 +208,10 @@ async function asegurarSchema() {
 					updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 				)
 			`);
-
 			await pool.query(`
 				CREATE INDEX IF NOT EXISTS idx_embarque_detalles_embarque
 				ON embarque_detalles (embarque_id)
 			`);
-
 			await pool.query(`
 				CREATE TABLE IF NOT EXISTS embarque_auditoria (
 					id BIGSERIAL PRIMARY KEY,
@@ -195,7 +222,6 @@ async function asegurarSchema() {
 					created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 				)
 			`);
-
 			await pool.query(`
 				CREATE TABLE IF NOT EXISTS embarque_idempotencia (
 					id_local UUID PRIMARY KEY,
