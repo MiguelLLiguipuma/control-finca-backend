@@ -1,6 +1,11 @@
 import crypto from 'crypto';
 import { pool } from '../../db/db.js';
 import { CosechaModel } from '../../models/cosecha/cosechaModel.js';
+import {
+	applyFincaScopeToRequestedIds,
+	assertFincaInScope,
+	resolveFincaScope,
+} from '../../utils/accessScope.js';
 
 const IDEMPOTENCIA_RETENCION_DIAS = 30;
 const LIMPIEZA_INTERVALO_MS = 60 * 60 * 1000;
@@ -238,9 +243,14 @@ export const CosechaService = {
 		const { id_local, finca_id, fecha, detalles } = payload || {};
 		const fincaId = Number(finca_id);
 		const usuarioId = Number(contexto.usuarioIdSesion);
+		const scope = await resolveFincaScope({
+			rol: contexto.rolUsuario,
+			userId: usuarioId,
+		});
 
 		if (!fincaId) throw crearError('finca_id es requerido', 400);
 		if (!usuarioId) throw crearError('Sesión inválida: usuario no autenticado', 401);
+		assertFincaInScope(fincaId, scope);
 		if (!validarFechaISO(fecha)) {
 			throw crearError('fecha debe estar en formato YYYY-MM-DD', 400);
 		}
@@ -362,15 +372,23 @@ export const CosechaService = {
 		}
 	},
 
-	obtenerEstadoInventario: async (fincaId) => {
+	obtenerEstadoInventario: async (fincaId, contexto = {}) => {
+		const usuarioId = Number(contexto.usuarioIdSesion);
+		const scope = await resolveFincaScope({
+			rol: contexto.rolUsuario,
+			userId: usuarioId,
+		});
+		assertFincaInScope(Number(fincaId), scope);
 		return await CosechaModel.obtenerBalancePorFinca(fincaId);
 	},
 
-	obtenerFechasOcupadas: async (query = {}) => {
-		const fincaIds = parsearFincaIds(query.finca_ids, query.finca_id);
-		if (!fincaIds.length) {
-			throw crearError('Debe enviar finca_id o finca_ids valido(s)', 400);
-		}
+	obtenerFechasOcupadas: async (query = {}, contexto = {}) => {
+		const usuarioId = Number(contexto.usuarioIdSesion);
+		const scope = await resolveFincaScope({
+			rol: contexto.rolUsuario,
+			userId: usuarioId,
+		});
+		const requestedFincaIds = parsearFincaIds(query.finca_ids, query.finca_id);
 
 		const fechaHastaNormalizada =
 			normalizarFechaISO(query.fecha_hasta) || new Date().toISOString().slice(0, 10);
@@ -383,6 +401,18 @@ export const CosechaService = {
 			!validarFechaISO(fechaHastaNormalizada)
 		) {
 			throw crearError('fecha_desde/fecha_hasta invalidas (YYYY-MM-DD)', 400);
+		}
+		const fincaIds = applyFincaScopeToRequestedIds(requestedFincaIds, scope);
+		if (!fincaIds.length) {
+			if (!scope.enforce) {
+				throw crearError('Debe enviar finca_id o finca_ids valido(s)', 400);
+			}
+			return {
+				finca_ids: [],
+				fecha_desde: fechaDesdeNormalizada,
+				fecha_hasta: fechaHastaNormalizada,
+				fechas: [],
+			};
 		}
 
 		const cosechaRes = await pool.query(

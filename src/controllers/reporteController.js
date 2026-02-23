@@ -137,7 +137,9 @@ export const ReportesController = {
 			);
 			res.json(data);
 		} catch (err) {
-			console.error('❌ Error mejorSemana:', err);
+			if (Number(err?.status) >= 500) {
+				console.error('❌ Error mejorSemana:', err);
+			}
 			manejarError(res, err);
 		}
 	},
@@ -191,7 +193,9 @@ export const ReportesController = {
 			);
 			res.json(data);
 		} catch (err) {
-			console.error('❌ Error totalSemanal:', err);
+			if (Number(err?.status) >= 500) {
+				console.error('❌ Error totalSemanal:', err);
+			}
 			manejarError(res, err);
 		}
 	},

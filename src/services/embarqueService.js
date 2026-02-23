@@ -1,5 +1,9 @@
 import crypto from 'crypto';
 import { pool } from '../db/db.js';
+import {
+	applyFincaScopeToRequestedIds,
+	resolveFincaScope,
+} from '../utils/accessScope.js';
 
 const IDEMPOTENCIA_RETENCION_DIAS = 30;
 const LIMPIEZA_INTERVALO_MS = 60 * 60 * 1000;
@@ -377,6 +381,39 @@ function validarDetalles(detalles) {
 	return normalizados;
 }
 
+function validarDetallesEnScope(detalles, scope) {
+	if (!scope?.enforce) return;
+	const allowed = scope.allowedFincaIds || [];
+	if (!allowed.length) {
+		throw crearError('No tiene fincas asignadas para operar vouchers', 403);
+	}
+	for (const d of detalles) {
+		if (!allowed.includes(Number(d.finca_id))) {
+			throw crearError('No tiene permisos para usar una o mas fincas en este voucher', 403);
+		}
+	}
+}
+
+async function asegurarAccesoVoucher(clientOrPool, voucherId, scope) {
+	if (!scope?.enforce) return;
+	const allowed = scope.allowedFincaIds || [];
+	if (!allowed.length) {
+		throw crearError('No tiene permisos para consultar este voucher', 403);
+	}
+	const executor = clientOrPool || pool;
+	const acceso = await executor.query(
+		`SELECT 1
+     FROM embarque_detalles
+     WHERE embarque_id = $1
+       AND finca_id = ANY($2::int[])
+     LIMIT 1`,
+		[voucherId, allowed],
+	);
+	if (!acceso.rows.length) {
+		throw crearError('No tiene permisos para consultar este voucher', 403);
+	}
+}
+
 async function insertarDetalles(client, embarqueId, detallesNormalizados) {
 	for (const d of detallesNormalizados) {
 		await client.query(
@@ -458,8 +495,12 @@ async function registrarAuditoria(client, embarqueId, accion, usuarioId, detalle
 }
 
 export const EmbarqueService = {
-	async getPreliquidacion({ fecha, finca_id, finca_ids }) {
+	async getPreliquidacion({ fecha, finca_id, finca_ids }, contexto = {}) {
 		await asegurarSchema();
+		const scope = await resolveFincaScope({
+			rol: contexto.rolUsuario,
+			userId: contexto.usuarioIdSesion,
+		});
 		const fechaISO = normalizarFechaISO(fecha);
 		if (!fechaISO || !validarFechaISO(fechaISO)) {
 			throw crearError('fecha debe estar en formato YYYY-MM-DD', 400);
@@ -467,9 +508,17 @@ export const EmbarqueService = {
 
 		const params = [fechaISO];
 		let filtroFinca = '';
-		const fincaIds = parsearFincaIds(finca_ids);
-		if (finca_id && Number(finca_id) > 0 && !fincaIds.length) {
-			fincaIds.push(Number(finca_id));
+		const requestedFincaIds = parsearFincaIds(finca_ids);
+		if (finca_id && Number(finca_id) > 0 && !requestedFincaIds.length) {
+			requestedFincaIds.push(Number(finca_id));
+		}
+		const fincaIds = applyFincaScopeToRequestedIds(requestedFincaIds, scope);
+		if (!fincaIds.length && scope.enforce) {
+			return {
+				fecha: fechaISO,
+				lineas: [],
+				totales: { racimos_buenos: 0, racimos_rechazo: 0, total_racimos: 0 },
+			};
 		}
 		if (fincaIds.length === 1) {
 			params.push(fincaIds[0]);
@@ -531,6 +580,10 @@ export const EmbarqueService = {
 		await asegurarSchema();
 		const { fecha_embarque, semana_corte, observaciones, detalles } = payload || {};
 		const usuarioId = Number(contexto.usuarioIdSesion);
+		const scope = await resolveFincaScope({
+			rol: contexto.rolUsuario,
+			userId: usuarioId,
+		});
 		if (!usuarioId) throw crearError('Sesion invalida: usuario no autenticado', 401);
 		const fechaEmbarqueISO = normalizarFechaISO(fecha_embarque);
 		if (!fechaEmbarqueISO || !validarFechaISO(fechaEmbarqueISO)) {
@@ -538,6 +591,7 @@ export const EmbarqueService = {
 		}
 
 		const detallesNormalizados = validarDetalles(detalles);
+		validarDetallesEnScope(detallesNormalizados, scope);
 		const totales = calcularTotales(detallesNormalizados);
 		const semanaCorte =
 			semana_corte === null || semana_corte === undefined
@@ -593,14 +647,19 @@ export const EmbarqueService = {
 	async actualizarVoucher(voucherId, payload, contexto = {}) {
 		await asegurarSchema();
 		const usuarioId = Number(contexto.usuarioIdSesion);
+		const scope = await resolveFincaScope({
+			rol: contexto.rolUsuario,
+			userId: usuarioId,
+		});
 		if (!usuarioId) throw crearError('Sesion invalida: usuario no autenticado', 401);
 		const id = Number(voucherId);
 		if (!id) throw crearError('voucherId invalido', 400);
 
 		const client = await pool.connect();
-		try {
-			await client.query('BEGIN');
-			const header = await client.query(
+			try {
+				await client.query('BEGIN');
+				await asegurarAccesoVoucher(client, id, scope);
+				const header = await client.query(
 				'SELECT id, estado FROM embarques WHERE id = $1 LIMIT 1 FOR UPDATE',
 				[id],
 			);
@@ -611,9 +670,10 @@ export const EmbarqueService = {
 
 			let detallesNormalizados = null;
 			let totales = null;
-			if (payload.detalles) {
-				detallesNormalizados = validarDetalles(payload.detalles);
-				totales = calcularTotales(detallesNormalizados);
+				if (payload.detalles) {
+					detallesNormalizados = validarDetalles(payload.detalles);
+					validarDetallesEnScope(detallesNormalizados, scope);
+					totales = calcularTotales(detallesNormalizados);
 
 				await client.query('DELETE FROM embarque_detalles WHERE embarque_id = $1', [id]);
 				await insertarDetalles(client, id, detallesNormalizados);
@@ -659,6 +719,10 @@ export const EmbarqueService = {
 	async confirmarVoucher(voucherId, payload, contexto = {}) {
 		await asegurarSchema();
 		const usuarioId = Number(contexto.usuarioIdSesion);
+		const scope = await resolveFincaScope({
+			rol: contexto.rolUsuario,
+			userId: usuarioId,
+		});
 		if (!usuarioId) throw crearError('Sesion invalida: usuario no autenticado', 401);
 
 		const id = Number(voucherId);
@@ -678,6 +742,7 @@ export const EmbarqueService = {
 		const client = await pool.connect();
 		try {
 			await client.query('BEGIN');
+			await asegurarAccesoVoucher(client, id, scope);
 			const headerRes = await client.query(
 				`SELECT id, estado, total_cajas
          FROM embarques
@@ -739,6 +804,10 @@ export const EmbarqueService = {
 	async anularVoucher(voucherId, payload, contexto = {}) {
 		await asegurarSchema();
 		const usuarioId = Number(contexto.usuarioIdSesion);
+		const scope = await resolveFincaScope({
+			rol: contexto.rolUsuario,
+			userId: usuarioId,
+		});
 		if (!usuarioId) throw crearError('Sesion invalida: usuario no autenticado', 401);
 		const id = Number(voucherId);
 		if (!id) throw crearError('voucherId invalido', 400);
@@ -748,6 +817,7 @@ export const EmbarqueService = {
 		const client = await pool.connect();
 		try {
 			await client.query('BEGIN');
+			await asegurarAccesoVoucher(client, id, scope);
 			const headerRes = await client.query(
 				'SELECT id, estado FROM embarques WHERE id = $1 LIMIT 1 FOR UPDATE',
 				[id],
@@ -782,17 +852,26 @@ export const EmbarqueService = {
 		}
 	},
 
-	async getVoucher(voucherId) {
+	async getVoucher(voucherId, contexto = {}) {
 		await asegurarSchema();
+		const scope = await resolveFincaScope({
+			rol: contexto.rolUsuario,
+			userId: contexto.usuarioIdSesion,
+		});
 		const id = Number(voucherId);
 		if (!id) throw crearError('voucherId invalido', 400);
+		await asegurarAccesoVoucher(pool, id, scope);
 		const voucher = await obtenerVoucherPorId(pool, id);
 		if (!voucher) throw crearError('Voucher no encontrado', 404);
 		return voucher;
 	},
 
-	async listVouchers(filtros = {}) {
+	async listVouchers(filtros = {}, contexto = {}) {
 		await asegurarSchema();
+		const scope = await resolveFincaScope({
+			rol: contexto.rolUsuario,
+			userId: contexto.usuarioIdSesion,
+		});
 		const params = [];
 		const where = [];
 
@@ -830,9 +909,13 @@ export const EmbarqueService = {
 				);
 			}
 		}
-		const fincaIds = parsearFincaIds(filtros.finca_ids);
-		if (filtros.finca_id && Number(filtros.finca_id) > 0 && !fincaIds.length) {
-			fincaIds.push(Number(filtros.finca_id));
+		const requestedFincaIds = parsearFincaIds(filtros.finca_ids);
+		if (filtros.finca_id && Number(filtros.finca_id) > 0 && !requestedFincaIds.length) {
+			requestedFincaIds.push(Number(filtros.finca_id));
+		}
+		const fincaIds = applyFincaScopeToRequestedIds(requestedFincaIds, scope);
+		if (!fincaIds.length && scope.enforce) {
+			return { items: [], total: 0 };
 		}
 		if (fincaIds.length === 1) {
 			params.push(fincaIds[0]);

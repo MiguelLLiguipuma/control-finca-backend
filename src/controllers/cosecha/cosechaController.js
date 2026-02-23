@@ -4,6 +4,7 @@ export const registrarCosecha = async (req, res) => {
 	try {
 		const data = await CosechaService.procesarLiquidacion(req.body, {
 			usuarioIdSesion: req.user?.id,
+			rolUsuario: req.user?.rol,
 		});
 		if (data.duplicated) {
 			return res.status(200).json({
@@ -30,21 +31,28 @@ export const registrarCosecha = async (req, res) => {
 export const getBalanceCampo = async (req, res) => {
 	try {
 		const { fincaId } = req.params;
-		const data = await CosechaService.obtenerEstadoInventario(fincaId);
+		const data = await CosechaService.obtenerEstadoInventario(fincaId, {
+			usuarioIdSesion: req.user?.id,
+			rolUsuario: req.user?.rol,
+		});
 		res.json(data);
 	} catch (error) {
-		console.error('DETALLE DEL ERROR:', error.message);
-		res.status(500).json({
-			error: 'Error en el servidor',
-			detalle: error.message,
-			hint: 'Verifica que la vista vw_balance_campo exista en la DB',
+		const status = Number(error?.status) || 500;
+		if (status >= 500) {
+			console.error('DETALLE DEL ERROR:', error.message);
+		}
+		res.status(status).json({
+			error: error?.message || 'Error en el servidor',
 		});
 	}
 };
 
 export const getFechasOcupadas = async (req, res) => {
 	try {
-		const data = await CosechaService.obtenerFechasOcupadas(req.query || {});
+		const data = await CosechaService.obtenerFechasOcupadas(req.query || {}, {
+			usuarioIdSesion: req.user?.id,
+			rolUsuario: req.user?.rol,
+		});
 		res.json({ success: true, data });
 	} catch (error) {
 		const status = Number(error?.status) || 500;
