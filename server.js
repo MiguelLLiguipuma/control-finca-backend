@@ -14,6 +14,7 @@ import reporteRoutes from './src/routes/reporteRoutes.js';
 import authRoutes from './src/routes/authRoutes.js';
 import cosechaRoutes from './src/routes/cosecha/cosechaRoutes.js';
 import embarqueRoutes from './src/routes/embarqueRoutes.js';
+import { createRateLimit } from './src/middlewares/rateLimitSimple.js';
 import { initWeatherWorker } from './src/workers/weatherWorker.js';
 
 dotenv.config();
@@ -36,6 +37,12 @@ function getAllowedOrigins() {
 }
 
 const allowedOrigins = getAllowedOrigins();
+const apiLimiter = createRateLimit({
+	windowMs: 10 * 60 * 1000,
+	max: Number(process.env.API_RATE_LIMIT_MAX || 600),
+	keyFn: (req) => req.ip,
+	message: 'Demasiadas solicitudes. Espere unos minutos e intente nuevamente.',
+});
 
 app.use(
 	cors({
@@ -49,6 +56,7 @@ app.use(
 	}),
 );
 app.use(express.json({ limit: '1mb' }));
+app.use('/api', apiLimiter);
 
 app.get('/debug', (req, res) => {
 	res.json({ status: 'OK', message: 'Si ves esto, el servidor funciona' });

@@ -12,7 +12,7 @@ export const login = async (req, res) => {
 
 	try {
 		const sql = `
-      SELECT u.id, u.nombre, u.email, u.password, r.nombre as rol
+      SELECT u.id, u.nombre, u.email, u.password, COALESCE(u.token_version, 1) AS token_version, r.nombre as rol
       FROM usuarios u
       JOIN usuarios_roles ur ON u.id = ur.usuario_id
       JOIN roles r ON ur.rol_id = r.id
@@ -47,8 +47,9 @@ export const login = async (req, res) => {
 			return res.status(500).json({ message: 'Error interno de configuración' });
 		}
 
+		const tokenVersion = Number(user.token_version || 1);
 		const token = jwt.sign(
-			{ id: user.id, rol: user.rol },
+			{ id: user.id, rol: user.rol, tv: tokenVersion },
 			process.env.JWT_SECRET,
 			{ expiresIn: '12h' },
 		);

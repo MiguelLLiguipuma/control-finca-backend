@@ -1,4 +1,5 @@
 import { UsuarioModel } from '../models/usuarioModel.js';
+import { query } from '../db/db.js';
 import { hashPassword, isPasswordHash } from '../utils/password.js';
 
 function normalizarEmail(email) {
@@ -48,13 +49,26 @@ export const UsuarioService = {
 		if (typeof payload?.nombre === 'string') {
 			data.nombre = payload.nombre.trim();
 		}
+
+		let passwordChanged = false;
 		if (typeof payload?.password === 'string' && payload.password.trim()) {
 			if (!isPasswordHash(payload.password)) {
 				validarPassword(payload.password);
 				data.password = hashPassword(payload.password);
+				passwordChanged = true;
 			}
 		}
-		return (await UsuarioModel.update(id, data)).rows[0];
+
+		await UsuarioModel.update(id, data);
+
+		if (passwordChanged) {
+			await query(
+				'UPDATE usuarios SET token_version = COALESCE(token_version, 1) + 1 WHERE id = $1',
+				[id],
+			);
+		}
+
+		return (await UsuarioModel.findById(id)).rows[0];
 	},
 	remove: async (id) => {
 		await UsuarioModel.remove(id);
