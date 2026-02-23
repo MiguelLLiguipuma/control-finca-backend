@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { RegistroController } from '../controllers/registroController.js';
+import { verificarSesion } from '../middlewares/auth.js';
 
 const router = Router();
+router.use(verificarSesion);
 router.get('/', RegistroController.list);
 router.get('/:id', RegistroController.get);
 router.post('/', RegistroController.create);

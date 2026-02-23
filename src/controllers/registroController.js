@@ -22,9 +22,11 @@ export const RegistroController = {
 
 	async create(req, res) {
 		try {
-			// Pasamos el body al servicio.
-			// Nota: El RegistroService debe usar el calendario_id para vincular al año correcto.
-			res.status(201).json(await RegistroService.create(req.body));
+			const payload = {
+				...req.body,
+				usuario_id: Number(req.user?.id || 0),
+			};
+			res.status(201).json(await RegistroService.create(payload));
 		} catch (e) {
 			res.status(400).json({ error: e.message });
 		}
@@ -32,7 +34,11 @@ export const RegistroController = {
 
 	async update(req, res) {
 		try {
-			res.json(await RegistroService.update(req.params.id, req.body));
+			const payload = {
+				...req.body,
+				usuario_id: Number(req.user?.id || 0),
+			};
+			res.json(await RegistroService.update(req.params.id, payload));
 		} catch (e) {
 			res.status(400).json({ error: e.message });
 		}

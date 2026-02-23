@@ -12,24 +12,33 @@ export const RegistroService = {
 	},
 
 	create: async (payload) => {
-		const { finca_id, usuario_id, calendario_id, cantidad_fundas } = payload;
+		const { finca_id, usuario_id, operario_id, calendario_id, cantidad_fundas } =
+			payload;
 
 		// Validación de campos obligatorios
-		if (!finca_id || !usuario_id || !calendario_id || cantidad_fundas == null) {
+		if (
+			!finca_id ||
+			!usuario_id ||
+			!operario_id ||
+			!calendario_id ||
+			cantidad_fundas == null
+		) {
 			throw new Error(
-				'finca_id, usuario_id, calendario_id y cantidad_fundas son requeridos',
+				'finca_id, usuario_id, operario_id, calendario_id y cantidad_fundas son requeridos',
 			);
 		}
 
 		// Validaciones de existencia en cascada
-		const [finca, usuario, cal] = await Promise.all([
+		const [finca, usuario, operario, cal] = await Promise.all([
 			FincaModel.findById(finca_id),
 			UsuarioModel.findById(usuario_id),
+			UsuarioModel.findById(operario_id),
 			CalendarioModel.findById(calendario_id),
 		]);
 
 		if (!finca.rows.length) throw new Error('finca_id no existe');
 		if (!usuario.rows.length) throw new Error('usuario_id no existe');
+		if (!operario.rows.length) throw new Error('operario_id no existe');
 		if (!cal.rows.length) throw new Error('calendario_id no existe');
 
 		// Importante: El registro se guarda vinculado al calendario_id.
@@ -49,6 +58,10 @@ export const RegistroService = {
 		if (payload.usuario_id) {
 			const u = await UsuarioModel.findById(payload.usuario_id);
 			if (!u.rows.length) throw new Error('usuario_id no existe');
+		}
+		if (payload.operario_id) {
+			const o = await UsuarioModel.findById(payload.operario_id);
+			if (!o.rows.length) throw new Error('operario_id no existe');
 		}
 		if (payload.calendario_id) {
 			const c = await CalendarioModel.findById(payload.calendario_id);

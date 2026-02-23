@@ -5,11 +5,12 @@ export const RegistroModel = {
 	findAll: () =>
 		query(
 			`SELECT r.id, r.fecha, r.cantidad_fundas, r.observaciones,
-              f.nombre AS finca, u.nombre AS usuario,
+              f.nombre AS finca, u.nombre AS usuario, o.nombre AS operario,
               c.semana, c.anio, ci.color, e.nombre AS empresa
        FROM registro_enfunde r
        LEFT JOIN fincas f ON f.id = r.finca_id
        LEFT JOIN usuarios u ON u.id = r.usuario_id
+       LEFT JOIN usuarios o ON o.id = r.operario_id
        LEFT JOIN calendarios_enfunde c ON c.id = r.calendario_id
        LEFT JOIN cintas ci ON ci.id = c.color_id
        LEFT JOIN empresas e ON e.id = c.empresa_id
@@ -20,10 +21,12 @@ export const RegistroModel = {
 	findById: (id) =>
 		query(
 			`SELECT r.*, f.nombre AS finca, u.nombre AS usuario,
+              o.nombre AS operario,
               c.semana, c.anio, ci.color, e.nombre AS empresa
        FROM registro_enfunde r
        LEFT JOIN fincas f ON f.id = r.finca_id
        LEFT JOIN usuarios u ON u.id = r.usuario_id
+       LEFT JOIN usuarios o ON o.id = r.operario_id
        LEFT JOIN calendarios_enfunde c ON c.id = r.calendario_id
        LEFT JOIN cintas ci ON ci.id = c.color_id
        LEFT JOIN empresas e ON e.id = c.empresa_id
@@ -36,18 +39,20 @@ export const RegistroModel = {
 		fecha,
 		finca_id,
 		usuario_id,
+		operario_id,
 		calendario_id,
 		cantidad_fundas,
 		observaciones,
 	}) =>
 		query(
 			`INSERT INTO registro_enfunde
-         (fecha, finca_id, usuario_id, calendario_id, cantidad_fundas, observaciones)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+         (fecha, finca_id, usuario_id, operario_id, calendario_id, cantidad_fundas, observaciones)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
 			[
 				fecha,
 				finca_id,
 				usuario_id,
+				operario_id,
 				calendario_id,
 				cantidad_fundas,
 				observaciones ?? null,
@@ -61,6 +66,7 @@ export const RegistroModel = {
 			fecha,
 			finca_id,
 			usuario_id,
+			operario_id,
 			calendario_id,
 			cantidad_fundas,
 			observaciones,
@@ -71,14 +77,16 @@ export const RegistroModel = {
          fecha = COALESCE($1, fecha),
          finca_id = COALESCE($2, finca_id),
          usuario_id = COALESCE($3, usuario_id),
-         calendario_id = COALESCE($4, calendario_id),
-         cantidad_fundas = COALESCE($5, cantidad_fundas),
-         observaciones = COALESCE($6, observaciones)
-       WHERE id=$7 RETURNING *`,
+         operario_id = COALESCE($4, operario_id),
+         calendario_id = COALESCE($5, calendario_id),
+         cantidad_fundas = COALESCE($6, cantidad_fundas),
+         observaciones = COALESCE($7, observaciones)
+       WHERE id=$8 RETURNING *`,
 			[
 				fecha ?? null,
 				finca_id ?? null,
 				usuario_id ?? null,
+				operario_id ?? null,
 				calendario_id ?? null,
 				cantidad_fundas ?? null,
 				observaciones ?? null,
@@ -93,11 +101,12 @@ export const RegistroModel = {
 	async obtenerPorFinca(fincaId, anio) {
 		const { rows } = await query(
 			`SELECT r.id, r.fecha, r.cantidad_fundas, r.observaciones, r.finca_id,
-						f.nombre AS finca, u.nombre AS usuario,
+						f.nombre AS finca, u.nombre AS usuario, o.nombre AS operario,
 						c.semana, c.anio, ci.color, e.nombre AS empresa
 		 FROM registro_enfunde r
 		 LEFT JOIN fincas f ON f.id = r.finca_id
 		 LEFT JOIN usuarios u ON u.id = r.usuario_id
+		 LEFT JOIN usuarios o ON o.id = r.operario_id
 		 LEFT JOIN calendarios_enfunde c ON c.id = r.calendario_id
 		 LEFT JOIN cintas ci ON ci.id = c.color_id
 		 LEFT JOIN empresas e ON e.id = c.empresa_id
