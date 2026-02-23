@@ -68,9 +68,12 @@ function esOperador(req) {
 }
 
 function scopeReportes(req) {
+	const modoRaw = String(req.query?.modo || '').trim().toLowerCase();
+	const modo = modoRaw === 'ytd' ? 'ytd' : 'full';
 	return {
 		soloPropio: esOperador(req),
 		usuarioId: Number(req.user?.id || 0),
+		modo,
 	};
 }
 
