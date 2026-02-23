@@ -83,4 +83,152 @@ export const ReportesModel = {
 		);
 		return rows;
 	},
+
+	async obtenerAlertas({ fincaId, dias, rechazoMinPct }) {
+		const filtrosVoucher = [];
+		const filtrosRechazo = ['rc.fecha >= CURRENT_DATE - ($1::int)'];
+		const filtrosSinCosecha = [];
+		const paramsRechazo = [dias];
+		const paramsVoucher = [];
+		const paramsSinCosecha = [];
+
+		if (fincaId) {
+			paramsVoucher.push(fincaId);
+			filtrosVoucher.push(
+				`EXISTS (
+					SELECT 1
+					FROM embarque_detalles ed
+					WHERE ed.embarque_id = e.id
+					  AND ed.finca_id = $${paramsVoucher.length}
+				)`,
+			);
+
+			paramsRechazo.push(fincaId);
+			filtrosRechazo.push(`rc.finca_id = $${paramsRechazo.length}`);
+
+			paramsSinCosecha.push(fincaId);
+			filtrosSinCosecha.push(`f.id = $${paramsSinCosecha.length}`);
+		}
+
+		const vouchersSql = `
+			SELECT
+				'VOUCHER_BORRADOR' AS tipo,
+				'alta' AS severidad,
+				e.id::text AS referencia_id,
+				e.fecha_embarque::text AS fecha_evento,
+				'Voucher en borrador pendiente de confirmación' AS mensaje
+			FROM embarques e
+			WHERE e.estado = 'BORRADOR'
+			  AND e.fecha_embarque <= CURRENT_DATE
+			  ${filtrosVoucher.length ? `AND ${filtrosVoucher.join(' AND ')}` : ''}
+			ORDER BY e.fecha_embarque ASC
+			LIMIT 50
+		`;
+
+		const rechazoSql = `
+			SELECT
+				'RECHAZO_ALTO' AS tipo,
+				'media' AS severidad,
+				(f.id::text || '-' || rc.fecha::text) AS referencia_id,
+				rc.fecha::text AS fecha_evento,
+				('Rechazo alto en ' || f.nombre || ': ' ||
+				  ROUND(
+				  	(SUM(rc.cantidad_rechazo)::numeric /
+				  	NULLIF(SUM(rc.cantidad_racimos + rc.cantidad_rechazo), 0)) * 100
+				  ,2) || '%') AS mensaje
+			FROM registro_cosecha rc
+			JOIN fincas f ON f.id = rc.finca_id
+			WHERE ${filtrosRechazo.join(' AND ')}
+			GROUP BY f.id, f.nombre, rc.fecha
+			HAVING (
+				(SUM(rc.cantidad_rechazo)::numeric /
+				 NULLIF(SUM(rc.cantidad_racimos + rc.cantidad_rechazo), 0)) * 100
+			) >= $${paramsRechazo.length + 1}
+			ORDER BY rc.fecha DESC
+			LIMIT 80
+		`;
+		paramsRechazo.push(rechazoMinPct);
+
+		const sinCosechaSql = `
+			SELECT
+				'SIN_COSECHA_HOY' AS tipo,
+				'baja' AS severidad,
+				f.id::text AS referencia_id,
+				CURRENT_DATE::text AS fecha_evento,
+				('No hay registro de cosecha hoy para finca ' || f.nombre) AS mensaje
+			FROM fincas f
+			WHERE NOT EXISTS (
+				SELECT 1
+				FROM registro_cosecha rc
+				WHERE rc.finca_id = f.id
+				  AND rc.fecha = CURRENT_DATE
+			)
+			${filtrosSinCosecha.length ? `AND ${filtrosSinCosecha.join(' AND ')}` : ''}
+			ORDER BY f.nombre ASC
+			LIMIT 80
+		`;
+
+		const [vouchers, rechazo, sinCosecha] = await Promise.all([
+			query(vouchersSql, paramsVoucher),
+			query(rechazoSql, paramsRechazo),
+			query(sinCosechaSql, paramsSinCosecha),
+		]);
+
+		return [...vouchers.rows, ...rechazo.rows, ...sinCosecha.rows];
+	},
+
+	async obtenerAuditoria({ fechaDesde, fechaHasta, accion, usuarioId, fincaId, limit }) {
+		const params = [];
+		const where = [];
+
+		if (fechaDesde) {
+			params.push(fechaDesde);
+			where.push(`a.created_at::date >= $${params.length}::date`);
+		}
+		if (fechaHasta) {
+			params.push(fechaHasta);
+			where.push(`a.created_at::date <= $${params.length}::date`);
+		}
+		if (accion) {
+			params.push(String(accion).toUpperCase());
+			where.push(`a.accion = $${params.length}`);
+		}
+		if (usuarioId) {
+			params.push(usuarioId);
+			where.push(`a.usuario_id = $${params.length}`);
+		}
+		if (fincaId) {
+			params.push(fincaId);
+			where.push(`EXISTS (
+				SELECT 1
+				FROM embarque_detalles ed
+				WHERE ed.embarque_id = a.embarque_id
+				  AND ed.finca_id = $${params.length}
+			)`);
+		}
+
+		const safeLimit = Math.min(Math.max(Number(limit) || 200, 1), 1000);
+		params.push(safeLimit);
+
+		const sql = `
+			SELECT
+				a.id,
+				a.created_at,
+				a.accion,
+				a.detalle,
+				a.usuario_id,
+				u.nombre AS usuario_nombre,
+				a.embarque_id,
+				e.numero_voucher
+			FROM embarque_auditoria a
+			LEFT JOIN usuarios u ON u.id = a.usuario_id
+			LEFT JOIN embarques e ON e.id = a.embarque_id
+			${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+			ORDER BY a.created_at DESC
+			LIMIT $${params.length}
+		`;
+
+		const { rows } = await query(sql, params);
+		return rows;
+	},
 };

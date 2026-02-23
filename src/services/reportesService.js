@@ -33,4 +33,12 @@ export const ReportesService = {
 	getTotalSemanal(fincaId, anio) {
 		return ReportesModel.obtenerTotalSemanal(fincaId, anio);
 	},
+
+	getAlertas(filtros) {
+		return ReportesModel.obtenerAlertas(filtros);
+	},
+
+	getAuditoria(filtros) {
+		return ReportesModel.obtenerAuditoria(filtros);
+	},
 };

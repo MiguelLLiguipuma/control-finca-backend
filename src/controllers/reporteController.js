@@ -25,6 +25,12 @@ function manejarError(res, err, fallback = 500) {
 	return res.status(status).json({ error: err.message || 'Error interno' });
 }
 
+function parseDateISO(raw) {
+	if (!raw) return null;
+	const value = String(raw).trim();
+	return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+}
+
 export const ReportesController = {
 	async totalAnual(req, res) {
 		try {
@@ -105,6 +111,54 @@ export const ReportesController = {
 			res.json(data);
 		} catch (err) {
 			console.error('❌ Error totalSemanal:', err);
+			manejarError(res, err);
+		}
+	},
+
+	async alertas(req, res) {
+		try {
+			const fincaId = req.query?.finca_id
+				? Math.max(0, Number(req.query.finca_id) || 0)
+				: null;
+			const dias = Math.min(Math.max(Number(req.query?.dias) || 7, 1), 30);
+			const rechazoMinPct = Math.min(
+				Math.max(Number(req.query?.rechazo_min_pct) || 20, 1),
+				80,
+			);
+			const data = await ReportesService.getAlertas({
+				fincaId: fincaId || null,
+				dias,
+				rechazoMinPct,
+			});
+			res.json(data);
+		} catch (err) {
+			manejarError(res, err);
+		}
+	},
+
+	async auditoria(req, res) {
+		try {
+			const fechaDesde = parseDateISO(req.query?.fecha_desde);
+			const fechaHasta = parseDateISO(req.query?.fecha_hasta);
+			const accion = req.query?.accion ? String(req.query.accion).toUpperCase() : null;
+			const usuarioId = req.query?.usuario_id
+				? Math.max(0, Number(req.query.usuario_id) || 0)
+				: null;
+			const fincaId = req.query?.finca_id
+				? Math.max(0, Number(req.query.finca_id) || 0)
+				: null;
+			const limit = Math.min(Math.max(Number(req.query?.limit) || 200, 1), 1000);
+
+			const data = await ReportesService.getAuditoria({
+				fechaDesde,
+				fechaHasta,
+				accion,
+				usuarioId: usuarioId || null,
+				fincaId: fincaId || null,
+				limit,
+			});
+			res.json(data);
+		} catch (err) {
 			manejarError(res, err);
 		}
 	},

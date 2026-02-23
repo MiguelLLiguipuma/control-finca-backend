@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { ReportesController } from '../controllers/reporteController.js';
 import { verificarSesion } from '../middlewares/auth.js';
+import { autorizarRoles } from '../middlewares/authorizeRoles.js';
 
 const router = Router();
 
@@ -51,6 +52,15 @@ router.get(
 	'/total-semanal/:fincaId/:anio',
 	verificarSesion,
 	ReportesController.totalSemanal,
+);
+
+router.get('/alertas', verificarSesion, ReportesController.alertas);
+
+router.get(
+	'/auditoria',
+	verificarSesion,
+	autorizarRoles('ADMIN', 'SUPERVISOR'),
+	ReportesController.auditoria,
 );
 
 export default router;
