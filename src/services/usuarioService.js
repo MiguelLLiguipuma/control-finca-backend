@@ -13,6 +13,24 @@ function validarPassword(password) {
 	}
 }
 
+async function resolverRolId(payload) {
+	const rolIdPayload = Number(payload?.rol_id || 0);
+	if (rolIdPayload > 0) return rolIdPayload;
+
+	const rolNombre = String(payload?.rol || '').trim();
+	if (rolNombre) {
+		const rolByName = await UsuarioModel.findRolByNombre(rolNombre);
+		if (!rolByName.rows.length) throw new Error('Rol no existe');
+		return Number(rolByName.rows[0].id);
+	}
+
+	const rolDefault = await UsuarioModel.findRolDefault();
+	if (!rolDefault.rows.length) {
+		throw new Error('No existe rol por defecto para asignar al usuario');
+	}
+	return Number(rolDefault.rows[0].id);
+}
+
 export const UsuarioService = {
 	getAll: async () => (await UsuarioModel.findAll()).rows,
 	getById: async (id) => (await UsuarioModel.findById(id)).rows[0],
@@ -33,7 +51,10 @@ export const UsuarioService = {
 			email,
 			password: hashPassword(rawPassword),
 		};
-		return (await UsuarioModel.create(data)).rows[0];
+		const creado = (await UsuarioModel.create(data)).rows[0];
+		const rolId = await resolverRolId(payload);
+		await UsuarioModel.replaceUsuarioRol(creado.id, rolId);
+		return await UsuarioService.getById(creado.id);
 	},
 	update: async (id, payload) => {
 		const cur = await UsuarioModel.findById(id);
@@ -67,8 +88,12 @@ export const UsuarioService = {
 				[id],
 			);
 		}
+		if (payload?.rol_id || payload?.rol) {
+			const rolId = await resolverRolId(payload);
+			await UsuarioModel.replaceUsuarioRol(Number(id), rolId);
+		}
 
-		return (await UsuarioModel.findById(id)).rows[0];
+		return await UsuarioService.getById(id);
 	},
 	remove: async (id) => {
 		await UsuarioModel.remove(id);

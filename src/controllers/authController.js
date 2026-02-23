@@ -2,8 +2,30 @@ import { query } from '../db/db.js';
 import jwt from 'jsonwebtoken';
 import { hashPassword, verifyPassword } from '../utils/password.js';
 
+function normalizarEmail(email) {
+	return String(email || '').trim().toLowerCase();
+}
+
+async function resolverRolRegistro() {
+	const rolRes = await query(
+		`SELECT id, nombre
+     FROM roles
+     WHERE UPPER(nombre) IN ('OPERADOR', 'TRABAJADOR', 'OPERARIO')
+     ORDER BY CASE
+       WHEN UPPER(nombre) = 'OPERADOR' THEN 1
+       WHEN UPPER(nombre) = 'TRABAJADOR' THEN 2
+       ELSE 3
+     END
+     LIMIT 1`,
+	);
+	if (!rolRes.rows.length) {
+		throw new Error('No existe rol base para registro');
+	}
+	return rolRes.rows[0];
+}
+
 export const login = async (req, res) => {
-	const email = String(req.body?.email || '').trim().toLowerCase();
+	const email = normalizarEmail(req.body?.email);
 	const password = String(req.body?.password || '');
 
 	if (!email || !password) {
@@ -64,6 +86,56 @@ export const login = async (req, res) => {
 		});
 	} catch (error) {
 		console.error('Error en login:', error);
+		return res.status(500).json({ message: 'Error en el servidor' });
+	}
+};
+
+export const register = async (req, res) => {
+	const nombre = String(req.body?.nombre || '').trim();
+	const email = normalizarEmail(req.body?.email);
+	const password = String(req.body?.password || '');
+
+	if (!nombre || !email || !password) {
+		return res.status(400).json({
+			message: 'nombre, email y contraseña son requeridos',
+		});
+	}
+	if (password.length < 8) {
+		return res.status(400).json({
+			message: 'La contraseña debe tener al menos 8 caracteres',
+		});
+	}
+
+	try {
+		const dup = await query('SELECT id FROM usuarios WHERE email = $1 LIMIT 1', [
+			email,
+		]);
+		if (dup.rows.length) {
+			return res.status(409).json({ message: 'El email ya está registrado' });
+		}
+
+		const nuevo = await query(
+			`INSERT INTO usuarios (nombre, email, password, activo)
+       VALUES ($1, $2, $3, true)
+       RETURNING id, nombre, email, activo`,
+			[nombre, email, hashPassword(password)],
+		);
+
+		const rol = await resolverRolRegistro();
+		await query(
+			'INSERT INTO usuarios_roles (usuario_id, rol_id) VALUES ($1, $2)',
+			[nuevo.rows[0].id, rol.id],
+		);
+
+		return res.status(201).json({
+			message: 'Cuenta creada correctamente. Inicie sesión para continuar.',
+			user: {
+				...nuevo.rows[0],
+				rol: rol.nombre,
+			},
+		});
+	} catch (error) {
+		console.error('Error en registro:', error);
 		return res.status(500).json({ message: 'Error en el servidor' });
 	}
 };
