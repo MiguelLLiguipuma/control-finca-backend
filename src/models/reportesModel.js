@@ -10,6 +10,21 @@ export const ReportesModel = {
 		);
 		return rows;
 	},
+	async obtenerTotalAnualPorAñoUsuario(fincaId, anio, usuarioId) {
+		const { rows } = await query(
+			`SELECT
+         $1::int AS finca_id,
+         $2::int AS anio,
+         COALESCE(SUM(r.cantidad_fundas), 0)::numeric AS total_fundas
+       FROM registro_enfunde r
+       JOIN calendarios_enfunde c ON c.id = r.calendario_id
+       WHERE r.finca_id = $1
+         AND c.anio = $2
+         AND r.usuario_id = $3`,
+			[fincaId, anio, usuarioId],
+		);
+		return rows;
+	},
 
 	async obtenerTotalMensual(fincaId, anio) {
 		const { rows } = await query(
@@ -18,6 +33,36 @@ export const ReportesModel = {
        WHERE finca_id = $1 AND anio = $2
        ORDER BY mes_num;`,
 			[fincaId, anio],
+		);
+		return rows;
+	},
+	async obtenerTotalMensualUsuario(fincaId, anio, usuarioId) {
+		const { rows } = await query(
+			`SELECT
+         EXTRACT(MONTH FROM r.fecha)::int AS mes_num,
+         CASE EXTRACT(MONTH FROM r.fecha)::int
+           WHEN 1 THEN 'January'
+           WHEN 2 THEN 'February'
+           WHEN 3 THEN 'March'
+           WHEN 4 THEN 'April'
+           WHEN 5 THEN 'May'
+           WHEN 6 THEN 'June'
+           WHEN 7 THEN 'July'
+           WHEN 8 THEN 'August'
+           WHEN 9 THEN 'September'
+           WHEN 10 THEN 'October'
+           WHEN 11 THEN 'November'
+           ELSE 'December'
+         END AS mes,
+         COALESCE(SUM(r.cantidad_fundas), 0)::numeric AS total_mes
+       FROM registro_enfunde r
+       JOIN calendarios_enfunde c ON c.id = r.calendario_id
+       WHERE r.finca_id = $1
+         AND c.anio = $2
+         AND r.usuario_id = $3
+       GROUP BY EXTRACT(MONTH FROM r.fecha)::int
+       ORDER BY mes_num`,
+			[fincaId, anio, usuarioId],
 		);
 		return rows;
 	},
@@ -32,6 +77,23 @@ export const ReportesModel = {
 		);
 		return rows;
 	},
+	async obtenerRendimientoCintasUsuario(fincaId, anio, usuarioId) {
+		const { rows } = await query(
+			`SELECT
+         ci.color,
+         COALESCE(SUM(r.cantidad_fundas), 0)::numeric AS total_fundas
+       FROM registro_enfunde r
+       JOIN calendarios_enfunde c ON c.id = r.calendario_id
+       JOIN cintas ci ON ci.id = c.color_id
+       WHERE r.finca_id = $1
+         AND c.anio = $2
+         AND r.usuario_id = $3
+       GROUP BY ci.color
+       ORDER BY total_fundas DESC`,
+			[fincaId, anio, usuarioId],
+		);
+		return rows;
+	},
 
 	async obtenerMejorSemanaPorAño(fincaId, anio) {
 		const { rows } = await query(
@@ -41,6 +103,23 @@ export const ReportesModel = {
        ORDER BY total_fundas DESC
        LIMIT 1;`,
 			[fincaId, anio],
+		);
+		return rows;
+	},
+	async obtenerMejorSemanaPorAñoUsuario(fincaId, anio, usuarioId) {
+		const { rows } = await query(
+			`SELECT
+         c.semana,
+         COALESCE(SUM(r.cantidad_fundas), 0)::numeric AS total_fundas
+       FROM registro_enfunde r
+       JOIN calendarios_enfunde c ON c.id = r.calendario_id
+       WHERE r.finca_id = $1
+         AND c.anio = $2
+         AND r.usuario_id = $3
+       GROUP BY c.semana
+       ORDER BY total_fundas DESC
+       LIMIT 1`,
+			[fincaId, anio, usuarioId],
 		);
 		return rows;
 	},
@@ -72,6 +151,22 @@ export const ReportesModel = {
 		);
 		return rows;
 	},
+	async obtenerPromedioSemanalPorFincaUsuario(fincaId, anio, usuarioId) {
+		const { rows } = await query(
+			`SELECT COALESCE(ROUND(AVG(total_semana)::numeric, 2), 0) AS promedio_semanal
+       FROM (
+         SELECT c.semana, SUM(r.cantidad_fundas)::numeric AS total_semana
+         FROM registro_enfunde r
+         JOIN calendarios_enfunde c ON c.id = r.calendario_id
+         WHERE r.finca_id = $1
+           AND c.anio = $2
+           AND r.usuario_id = $3
+         GROUP BY c.semana
+       ) s`,
+			[fincaId, anio, usuarioId],
+		);
+		return rows;
+	},
 
 	async obtenerTotalSemanal(fincaId, anio) {
 		const { rows } = await query(
@@ -80,6 +175,23 @@ export const ReportesModel = {
        WHERE finca_id = $1 AND anio = $2
        ORDER BY semana ASC`,
 			[fincaId, anio],
+		);
+		return rows;
+	},
+	async obtenerTotalSemanalUsuario(fincaId, anio, usuarioId) {
+		const { rows } = await query(
+			`SELECT
+         c.semana,
+         $2::int AS anio,
+         COALESCE(SUM(r.cantidad_fundas), 0)::numeric AS total_semana
+       FROM registro_enfunde r
+       JOIN calendarios_enfunde c ON c.id = r.calendario_id
+       WHERE r.finca_id = $1
+         AND c.anio = $2
+         AND r.usuario_id = $3
+       GROUP BY c.semana
+       ORDER BY c.semana ASC`,
+			[fincaId, anio, usuarioId],
 		);
 		return rows;
 	},
