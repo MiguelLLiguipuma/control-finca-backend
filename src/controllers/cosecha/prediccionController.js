@@ -184,7 +184,6 @@ export const obtenerPrediccionCosecha = async (req, res) => {
 		console.error('ERROR CRITICO MOTOR COSECHA:', error);
 		res.status(500).json({
 			error: 'Error en proyecciones biologicas',
-			detalle: error.message,
 		});
 	}
 };

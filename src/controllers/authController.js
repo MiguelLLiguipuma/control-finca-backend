@@ -1,8 +1,14 @@
 import { query } from '../db/db.js';
 import jwt from 'jsonwebtoken';
+import { hashPassword, verifyPassword } from '../utils/password.js';
 
 export const login = async (req, res) => {
-	const { email, password } = req.body;
+	const email = String(req.body?.email || '').trim().toLowerCase();
+	const password = String(req.body?.password || '');
+
+	if (!email || !password) {
+		return res.status(400).json({ message: 'Email y contraseña son requeridos' });
+	}
 
 	try {
 		const sql = `
@@ -22,9 +28,23 @@ export const login = async (req, res) => {
 		}
 
 		const user = result.rows[0];
+		const check = verifyPassword(password, user.password);
 
-		if (user.password !== password) {
+		if (!check.matches) {
 			return res.status(401).json({ message: 'Contraseña incorrecta' });
+		}
+
+		if (check.legacy) {
+			const newHash = hashPassword(password);
+			await query('UPDATE usuarios SET password = $1 WHERE id = $2', [
+				newHash,
+				user.id,
+			]);
+		}
+
+		if (!process.env.JWT_SECRET) {
+			console.error('JWT_SECRET no definido en entorno');
+			return res.status(500).json({ message: 'Error interno de configuración' });
 		}
 
 		const token = jwt.sign(
@@ -33,7 +53,7 @@ export const login = async (req, res) => {
 			{ expiresIn: '12h' },
 		);
 
-		res.json({
+		return res.json({
 			token,
 			user: {
 				id: user.id,
@@ -43,6 +63,6 @@ export const login = async (req, res) => {
 		});
 	} catch (error) {
 		console.error('Error en login:', error);
-		res.status(500).json({ message: 'Error en el servidor' });
+		return res.status(500).json({ message: 'Error en el servidor' });
 	}
 };

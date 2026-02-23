@@ -1,28 +1,28 @@
-// ===============================================
-// 🗄️ Conexión a la base de datos PostgreSQL
-// ===============================================
-
 import pg from 'pg';
 import dotenv from 'dotenv';
 
-dotenv.config(); // Carga las variables del archivo .env
+dotenv.config();
 
 const { Pool } = pg;
 
-// 🧩 Configuración del pool de conexiones
-export const pool = new Pool({
+const dbConfig = {
 	host: process.env.DB_HOST || 'localhost',
 	user: process.env.DB_USER || 'postgres',
-	password: process.env.DB_PASSWORD || 'admin',
+	password: process.env.DB_PASSWORD || '',
 	database: process.env.DB_NAME || 'control_finca',
-	port: process.env.DB_PORT || 5432,
+	port: Number(process.env.DB_PORT || 5432),
 	ssl:
 		process.env.NODE_ENV === 'production'
 			? { rejectUnauthorized: false }
 			: false,
-});
+};
 
-// 🧠 Función utilitaria para hacer consultas SQL
+if (process.env.NODE_ENV === 'production' && !dbConfig.password) {
+	throw new Error('DB_PASSWORD es obligatorio en producción');
+}
+
+export const pool = new Pool(dbConfig);
+
 export const query = async (text, params) => {
 	try {
 		const result = await pool.query(text, params);
@@ -33,10 +33,12 @@ export const query = async (text, params) => {
 	}
 };
 
-// 🚀 Mensaje de conexión
 pool
 	.connect()
-	.then(() => console.log('✅ Conectado correctamente a PostgreSQL'))
+	.then((client) => {
+		console.log('✅ Conectado correctamente a PostgreSQL');
+		client.release();
+	})
 	.catch((err) =>
 		console.error('❌ Error al conectar con la base de datos:', err.message),
 	);

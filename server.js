@@ -3,7 +3,6 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { pool } from './src/db/db.js';
 
-// Importar rutas
 import rolRoutes from './src/routes/rolRoutes.js';
 import usuarioRoutes from './src/routes/usuarioRoutes.js';
 import empresaRoutes from './src/routes/empresaRoutes.js';
@@ -17,22 +16,44 @@ import cosechaRoutes from './src/routes/cosecha/cosechaRoutes.js';
 import embarqueRoutes from './src/routes/embarqueRoutes.js';
 import { initWeatherWorker } from './src/workers/weatherWorker.js';
 
-// Configuración de entorno
 dotenv.config();
 
-// Inicializar servidor Express
 const app = express();
 
-// Middlewares globales
-app.use(cors());
-app.use(express.json());
+function getAllowedOrigins() {
+	const envList = String(process.env.CORS_ORIGINS || '')
+		.split(',')
+		.map((x) => x.trim())
+		.filter(Boolean);
 
-// Debug rápido
+	if (envList.length) return envList;
+
+	return [
+		'http://localhost:5173',
+		'http://127.0.0.1:5173',
+		'https://control-finca.vercel.app',
+	];
+}
+
+const allowedOrigins = getAllowedOrigins();
+
+app.use(
+	cors({
+		origin(origin, callback) {
+			if (!origin) return callback(null, true);
+			if (allowedOrigins.includes(origin)) return callback(null, true);
+			return callback(new Error('Origen no permitido por CORS'));
+		},
+		methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+		allowedHeaders: ['Content-Type', 'Authorization'],
+	}),
+);
+app.use(express.json({ limit: '1mb' }));
+
 app.get('/debug', (req, res) => {
 	res.json({ status: 'OK', message: 'Si ves esto, el servidor funciona' });
 });
 
-// ✅ Rutas principales
 app.use('/api/reportes', reporteRoutes);
 app.use('/api/roles', rolRoutes);
 app.use('/api/usuarios', usuarioRoutes);
@@ -40,27 +61,28 @@ app.use('/api/empresas', empresaRoutes);
 app.use('/api/fincas', fincaRoutes);
 app.use('/api/cintas', cintaRoutes);
 app.use('/api/calendarios-enfunde', calendarioRoutes);
-// -----------------------------
-
 app.use('/api/registros', registroRoutes);
 app.use('/api/cosecha', cosechaRoutes);
 app.use('/api/embarque', embarqueRoutes);
 app.use('/api/auth', authRoutes);
 
-// Puerto de servidor
+app.use((err, _req, res, _next) => {
+	if (String(err?.message || '').includes('CORS')) {
+		return res.status(403).json({ message: 'Origen no autorizado' });
+	}
+	return res.status(500).json({ message: 'Error interno del servidor' });
+});
+
 const PORT = process.env.PORT || 4000;
 
-// Iniciar servidor
 app.listen(PORT, async () => {
 	console.log(`✅ Servidor backend en ejecución: http://localhost:${PORT}`);
 
 	try {
 		const client = await pool.connect();
 		console.log('✅ Conectado correctamente a PostgreSQL');
-		client.release(); // Liberamos el cliente inmediatamente
+		client.release();
 
-		// 🔥 INICIAR MOTOR CLIMÁTICO (Worker)
-		// Esto encenderá el cron job que sincroniza el clima de todas las fincas
 		initWeatherWorker();
 		console.log('☀️ Motor de sincronización climática activado');
 	} catch (err) {
