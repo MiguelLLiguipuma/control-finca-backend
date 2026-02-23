@@ -1,9 +1,14 @@
 import { FincaService } from '../services/fincaService.js';
 
 export const FincaController = {
-	async list(_req, res) {
+	async list(req, res) {
 		try {
-			res.json(await FincaService.getAll());
+			res.json(
+				await FincaService.getAll({
+					userId: req.user?.id,
+					rol: req.user?.rol,
+				}),
+			);
 		} catch (e) {
 			res.status(500).json({ error: e.message });
 		}

@@ -39,4 +39,22 @@ export const UsuarioController = {
 			res.status(400).json({ error: e.message });
 		}
 	},
+	async getFincas(req, res) {
+		try {
+			res.json({
+				finca_ids: await UsuarioService.getFincasAsignadas(req.params.id),
+			});
+		} catch (e) {
+			res.status(400).json({ error: e.message });
+		}
+	},
+	async setFincas(req, res) {
+		try {
+			res.json({
+				finca_ids: await UsuarioService.asignarFincas(req.params.id, req.body),
+			});
+		} catch (e) {
+			res.status(400).json({ error: e.message });
+		}
+	},
 };

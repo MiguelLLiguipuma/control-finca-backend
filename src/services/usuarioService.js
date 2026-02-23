@@ -1,4 +1,5 @@
 import { UsuarioModel } from '../models/usuarioModel.js';
+import { FincaModel } from '../models/fincaModel.js';
 import { query } from '../db/db.js';
 import { hashPassword, isPasswordHash } from '../utils/password.js';
 
@@ -98,5 +99,33 @@ export const UsuarioService = {
 	remove: async (id) => {
 		await UsuarioModel.remove(id);
 		return { ok: true };
+	},
+	getFincasAsignadas: async (id) => {
+		const user = await UsuarioModel.findById(id);
+		if (!user.rows.length) throw new Error('Usuario no encontrado');
+		return (await UsuarioModel.getFincasAsignadas(id)).rows.map((r) =>
+			Number(r.finca_id),
+		);
+	},
+	asignarFincas: async (id, payload) => {
+		const user = await UsuarioModel.findById(id);
+		if (!user.rows.length) throw new Error('Usuario no encontrado');
+
+		const fincas = Array.isArray(payload?.finca_ids) ? payload.finca_ids : [];
+		const fincaIds = Array.from(
+			new Set(
+				fincas
+					.map((x) => Number(x))
+					.filter((x) => Number.isInteger(x) && x > 0),
+			),
+		);
+
+		for (const fincaId of fincaIds) {
+			const finca = await FincaModel.findById(fincaId);
+			if (!finca.rows.length) throw new Error(`finca_id ${fincaId} no existe`);
+		}
+
+		await UsuarioModel.replaceFincasAsignadas(Number(id), fincaIds);
+		return await UsuarioService.getFincasAsignadas(id);
 	},
 };

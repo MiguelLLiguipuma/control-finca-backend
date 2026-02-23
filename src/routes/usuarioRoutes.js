@@ -10,4 +10,6 @@ router.get('/:id', UsuarioController.get);
 router.post('/', UsuarioController.create);
 router.put('/:id', UsuarioController.update);
 router.delete('/:id', UsuarioController.remove);
+router.get('/:id/fincas', UsuarioController.getFincas);
+router.put('/:id/fincas', UsuarioController.setFincas);
 export default router;

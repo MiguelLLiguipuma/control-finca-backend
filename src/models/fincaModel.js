@@ -8,6 +8,16 @@ export const FincaModel = {
        LEFT JOIN empresas e ON e.id = f.empresa_id
        ORDER BY f.id`,
 		),
+	findByUsuarioId: (usuarioId) =>
+		query(
+			`SELECT f.*, e.nombre AS empresa_nombre
+       FROM usuarios_fincas uf
+       JOIN fincas f ON f.id = uf.finca_id
+       LEFT JOIN empresas e ON e.id = f.empresa_id
+       WHERE uf.usuario_id = $1
+       ORDER BY f.id`,
+			[usuarioId],
+		),
 
 	findById: (id) =>
 		query(

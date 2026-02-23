@@ -67,5 +67,24 @@ export const UsuarioModel = {
 			[usuarioId, rolId],
 		);
 	},
+	getFincasAsignadas: (usuarioId) =>
+		query(
+			`SELECT uf.finca_id
+       FROM usuarios_fincas uf
+       WHERE uf.usuario_id = $1
+       ORDER BY uf.finca_id`,
+			[usuarioId],
+		),
+	replaceFincasAsignadas: async (usuarioId, fincaIds = []) => {
+		await query('DELETE FROM usuarios_fincas WHERE usuario_id = $1', [usuarioId]);
+		for (const fincaId of fincaIds) {
+			await query(
+				`INSERT INTO usuarios_fincas (usuario_id, finca_id)
+         VALUES ($1, $2)
+         ON CONFLICT (usuario_id, finca_id) DO NOTHING`,
+				[usuarioId, fincaId],
+			);
+		}
+	},
 	remove: (id) => query('DELETE FROM usuarios WHERE id=$1', [id]),
 };
