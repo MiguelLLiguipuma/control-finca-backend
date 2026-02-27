@@ -29,7 +29,14 @@ function getAllowedOrigins() {
 		'http://localhost:5173',
 		'http://127.0.0.1:5173',
 		'https://control-finca.vercel.app',
+		'https://control-finca-frontend-pt41.vercel.app',
 	];
+}
+
+function isAllowedVercelPreview(origin) {
+	return /^https:\/\/control-finca-frontend-[a-z0-9-]+\.vercel\.app$/i.test(
+		String(origin || ''),
+	);
 }
 
 export function createApp() {
@@ -48,6 +55,7 @@ export function createApp() {
 			origin(origin, callback) {
 				if (!origin) return callback(null, true);
 				if (allowedOrigins.includes(origin)) return callback(null, true);
+				if (isAllowedVercelPreview(origin)) return callback(null, true);
 				return callback(new Error('Origen no permitido por CORS'));
 			},
 			methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
