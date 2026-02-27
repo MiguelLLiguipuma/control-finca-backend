@@ -664,8 +664,9 @@ export const EmbarqueService = {
 				[id],
 			);
 			if (!header.rows.length) throw crearError('Voucher no encontrado', 404);
-			if (header.rows[0].estado !== 'BORRADOR') {
-				throw crearError('Solo se puede editar voucher en BORRADOR', 409);
+			const estadoActual = String(header.rows[0].estado || '').toUpperCase();
+			if (estadoActual === 'ANULADO') {
+				throw crearError('No se puede editar voucher ANULADO', 409);
 			}
 
 			let detallesNormalizados = null;
@@ -702,9 +703,17 @@ export const EmbarqueService = {
 				],
 			);
 
-			await registrarAuditoria(client, id, 'ACTUALIZAR_BORRADOR', usuarioId, {
+			await registrarAuditoria(
+				client,
+				id,
+				estadoActual === 'CONFIRMADO'
+					? 'ACTUALIZAR_CONFIRMADO'
+					: 'ACTUALIZAR_BORRADOR',
+				usuarioId,
+				{
 				lineas: detallesNormalizados ? detallesNormalizados.length : undefined,
-			});
+				},
+			);
 
 			await client.query('COMMIT');
 			return await obtenerVoucherPorId(client, id);
