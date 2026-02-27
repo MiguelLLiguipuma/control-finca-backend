@@ -665,12 +665,16 @@ export const EmbarqueService = {
 			);
 			if (!header.rows.length) throw crearError('Voucher no encontrado', 404);
 			const estadoActual = String(header.rows[0].estado || '').toUpperCase();
-			if (estadoActual === 'ANULADO') {
-				throw crearError('No se puede editar voucher ANULADO', 409);
+			if (estadoActual !== 'BORRADOR') {
+				throw crearError('Solo se puede editar voucher en BORRADOR', 409);
 			}
 
 			let detallesNormalizados = null;
 			let totales = null;
+			const semanaCorteUpdate =
+				payload.semana_corte === undefined || payload.semana_corte === null
+					? null
+					: Math.max(1, Math.min(53, toNonNegativeInt(payload.semana_corte, 1)));
 				if (payload.detalles) {
 					detallesNormalizados = validarDetalles(payload.detalles);
 					validarDetallesEnScope(detallesNormalizados, scope);
@@ -689,6 +693,7 @@ export const EmbarqueService = {
              total_cajas = COALESCE($6, total_cajas),
              ratio_comercial_global = COALESCE($7, ratio_comercial_global),
              ratio_operativo_global = COALESCE($8, ratio_operativo_global),
+             semana_corte = COALESCE($9, semana_corte),
              updated_at = NOW()
        WHERE id = $1`,
 				[
@@ -700,20 +705,13 @@ export const EmbarqueService = {
 					totales?.total_cajas ?? null,
 					totales?.ratio_comercial_global ?? null,
 					totales?.ratio_operativo_global ?? null,
+					semanaCorteUpdate,
 				],
 			);
 
-			await registrarAuditoria(
-				client,
-				id,
-				estadoActual === 'CONFIRMADO'
-					? 'ACTUALIZAR_CONFIRMADO'
-					: 'ACTUALIZAR_BORRADOR',
-				usuarioId,
-				{
+			await registrarAuditoria(client, id, 'ACTUALIZAR_BORRADOR', usuarioId, {
 				lineas: detallesNormalizados ? detallesNormalizados.length : undefined,
-				},
-			);
+			});
 
 			await client.query('COMMIT');
 			return await obtenerVoucherPorId(client, id);
