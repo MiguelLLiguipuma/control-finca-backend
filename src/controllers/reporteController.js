@@ -70,10 +70,13 @@ function esOperador(req) {
 function scopeReportes(req) {
 	const modoRaw = String(req.query?.modo || '').trim().toLowerCase();
 	const modo = modoRaw === 'ytd' ? 'ytd' : 'full';
+	const scopeRaw = String(req.query?.scope || '').trim().toLowerCase();
+	const scope = scopeRaw === 'propio' ? 'propio' : 'finca';
 	return {
-		soloPropio: esOperador(req),
+		soloPropio: esOperador(req) && scope === 'propio',
 		usuarioId: Number(req.user?.id || 0),
 		modo,
+		scope,
 	};
 }
 
