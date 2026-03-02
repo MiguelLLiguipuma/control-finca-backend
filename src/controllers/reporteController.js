@@ -63,6 +63,16 @@ function parseDateISO(raw) {
 	return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
 }
 
+function parseFincaIdFromBody(body) {
+	const fincaId = Number(body?.finca_id || 0);
+	if (!Number.isInteger(fincaId) || fincaId <= 0) {
+		const err = new Error('finca_id invalido');
+		err.status = 400;
+		throw err;
+	}
+	return fincaId;
+}
+
 function esOperador(req) {
 	return normalizeRole(req.user?.rol) === 'OPERADOR';
 }
@@ -235,6 +245,54 @@ export const ReportesController = {
 				fincaId: fincaFilter,
 				dias,
 				rechazoMinPct,
+			});
+			res.json(data);
+		} catch (err) {
+			manejarError(res, err);
+		}
+	},
+
+	async registrarFumigacion(req, res) {
+		try {
+			const fincaId = parseFincaIdFromBody(req.body);
+			await asegurarAccesoFinca(req, fincaId);
+
+			const fechaFumigacion = parseDateISO(req.body?.fecha_fumigacion);
+			if (!fechaFumigacion) {
+				return res
+					.status(400)
+					.json({ error: 'fecha_fumigacion invalida (YYYY-MM-DD)' });
+			}
+
+			const observacion = String(req.body?.observacion || '').trim();
+			const usuarioId = Number(req.user?.id || 0) || null;
+
+			const data = await ReportesService.registrarFumigacion({
+				fincaId,
+				fechaFumigacion,
+				observacion,
+				usuarioId,
+			});
+			res.status(201).json(data);
+		} catch (err) {
+			manejarError(res, err, 400);
+		}
+	},
+
+	async fumigaciones(req, res) {
+		try {
+			const fincaId = req.query?.finca_id
+				? Math.max(0, Number(req.query.finca_id) || 0)
+				: null;
+
+			if (fincaId) {
+				await asegurarAccesoFinca(req, fincaId);
+			}
+
+			const limit = Math.min(Math.max(Number(req.query?.limit) || 30, 1), 200);
+			const data = await ReportesService.getFumigaciones({
+				fincaId: fincaId || null,
+				limit,
 			});
 			res.json(data);
 		} catch (err) {

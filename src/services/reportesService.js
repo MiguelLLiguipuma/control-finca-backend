@@ -146,6 +146,14 @@ export const ReportesService = {
 		return ReportesModel.obtenerAlertas(filtros);
 	},
 
+	registrarFumigacion(payload) {
+		return ReportesModel.registrarFumigacion(payload);
+	},
+
+	getFumigaciones(filtros) {
+		return ReportesModel.obtenerFumigaciones(filtros);
+	},
+
 	getAuditoria(filtros) {
 		return ReportesModel.obtenerAuditoria(filtros);
 	},

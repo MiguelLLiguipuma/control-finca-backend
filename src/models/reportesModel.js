@@ -432,9 +432,11 @@ export const ReportesModel = {
 		const filtrosVoucher = [];
 		const filtrosRechazo = ['rc.fecha >= CURRENT_DATE - ($1::int)'];
 		const filtrosSinCosecha = [];
+		const filtrosSanidad = [];
 		const paramsRechazo = [dias];
 		const paramsVoucher = [];
 		const paramsSinCosecha = [];
+		const paramsSanidad = [];
 
 		if (fincaId) {
 			paramsVoucher.push(fincaId);
@@ -452,6 +454,9 @@ export const ReportesModel = {
 
 			paramsSinCosecha.push(fincaId);
 			filtrosSinCosecha.push(`f.id = $${paramsSinCosecha.length}`);
+
+			paramsSanidad.push(fincaId);
+			filtrosSanidad.push(`f.id = $${paramsSanidad.length}`);
 		}
 
 		const vouchersSql = `
@@ -512,13 +517,107 @@ export const ReportesModel = {
 			LIMIT 80
 		`;
 
-		const [vouchers, rechazo, sinCosecha] = await Promise.all([
+		const sanidadSql = `
+			WITH ultima AS (
+				SELECT
+					fs.finca_id,
+					MAX(fs.fecha_fumigacion)::date AS fecha_ultima_fumigacion
+				FROM fumigaciones_sanidad fs
+				GROUP BY fs.finca_id
+			)
+			SELECT
+				CASE
+					WHEN u.fecha_ultima_fumigacion IS NULL THEN 'SANIDAD_GRIS'
+					WHEN (CURRENT_DATE - u.fecha_ultima_fumigacion) > 20 THEN 'SANIDAD_ROJO'
+					WHEN (CURRENT_DATE - u.fecha_ultima_fumigacion) > 15 THEN 'SANIDAD_AMARILLO'
+					ELSE 'SANIDAD_VERDE'
+				END AS tipo,
+				CASE
+					WHEN u.fecha_ultima_fumigacion IS NULL THEN 'media'
+					WHEN (CURRENT_DATE - u.fecha_ultima_fumigacion) > 20 THEN 'alta'
+					WHEN (CURRENT_DATE - u.fecha_ultima_fumigacion) > 15 THEN 'media'
+					ELSE 'baja'
+				END AS severidad,
+				f.id::text AS referencia_id,
+				COALESCE(u.fecha_ultima_fumigacion::text, CURRENT_DATE::text) AS fecha_evento,
+				(
+					'Semáforo sanitario ' ||
+					CASE
+						WHEN u.fecha_ultima_fumigacion IS NULL THEN 'GRIS'
+						WHEN (CURRENT_DATE - u.fecha_ultima_fumigacion) > 20 THEN 'ROJO'
+						WHEN (CURRENT_DATE - u.fecha_ultima_fumigacion) > 15 THEN 'AMARILLO'
+						ELSE 'VERDE'
+					END ||
+					' en ' || f.nombre || ': ' ||
+					CASE
+						WHEN u.fecha_ultima_fumigacion IS NULL THEN 'sin registro de fumigación.'
+						ELSE ((CURRENT_DATE - u.fecha_ultima_fumigacion)::int)::text || ' días desde última fumigación.'
+					END
+				) AS mensaje
+			FROM fincas f
+			LEFT JOIN ultima u ON u.finca_id = f.id
+			${filtrosSanidad.length ? `WHERE ${filtrosSanidad.join(' AND ')}` : ''}
+			ORDER BY f.nombre ASC
+			LIMIT 80
+		`;
+
+		const [vouchers, rechazo, sinCosecha, sanidad] = await Promise.all([
 			query(vouchersSql, paramsVoucher),
 			query(rechazoSql, paramsRechazo),
 			query(sinCosechaSql, paramsSinCosecha),
+			query(sanidadSql, paramsSanidad),
 		]);
 
-		return [...vouchers.rows, ...rechazo.rows, ...sinCosecha.rows];
+		return [...vouchers.rows, ...rechazo.rows, ...sinCosecha.rows, ...sanidad.rows];
+	},
+
+	async registrarFumigacion({ fincaId, fechaFumigacion, observacion, usuarioId }) {
+		const { rows } = await query(
+			`INSERT INTO fumigaciones_sanidad (
+				finca_id,
+				fecha_fumigacion,
+				observacion,
+				usuario_id
+			)
+			VALUES ($1, $2::date, $3, $4)
+			RETURNING id, finca_id, fecha_fumigacion, observacion, usuario_id, created_at`,
+			[fincaId, fechaFumigacion, observacion || null, usuarioId || null],
+		);
+		return rows[0];
+	},
+
+	async obtenerFumigaciones({ fincaId, limit = 30 }) {
+		const params = [];
+		const where = [];
+
+		if (fincaId) {
+			params.push(fincaId);
+			where.push(`fs.finca_id = $${params.length}`);
+		}
+
+		const safeLimit = Math.min(Math.max(Number(limit) || 30, 1), 200);
+		params.push(safeLimit);
+
+		const { rows } = await query(
+			`SELECT
+				fs.id,
+				fs.finca_id,
+				f.nombre AS finca_nombre,
+				fs.fecha_fumigacion,
+				fs.observacion,
+				fs.usuario_id,
+				u.nombre AS usuario_nombre,
+				fs.created_at
+			FROM fumigaciones_sanidad fs
+			JOIN fincas f ON f.id = fs.finca_id
+			LEFT JOIN usuarios u ON u.id = fs.usuario_id
+			${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+			ORDER BY fs.fecha_fumigacion DESC, fs.id DESC
+			LIMIT $${params.length}`,
+			params,
+		);
+
+		return rows;
 	},
 
 	async obtenerAuditoria({ fechaDesde, fechaHasta, accion, usuarioId, fincaId, limit }) {

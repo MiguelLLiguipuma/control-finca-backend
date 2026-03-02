@@ -55,6 +55,8 @@ router.get(
 );
 
 router.get('/alertas', verificarSesion, ReportesController.alertas);
+router.get('/fumigaciones', verificarSesion, ReportesController.fumigaciones);
+router.post('/fumigaciones', verificarSesion, ReportesController.registrarFumigacion);
 
 router.get(
 	'/auditoria',
