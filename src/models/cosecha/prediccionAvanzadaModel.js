@@ -169,17 +169,44 @@ export const PrediccionAvanzadaModel = {
 
 	async obtenerInventarioActual(fincaId) {
 		const { rows } = await query(
-			`SELECT
-         calendario_id,
-         semana_enfunde,
-         anio,
-         saldo_en_campo,
-         color_cinta,
-         color_hex
-       FROM vw_balance_campo
-       WHERE finca_id = $1
-         AND saldo_en_campo > 0
-       ORDER BY anio ASC, semana_enfunde ASC`,
+			`WITH saldo AS (
+         SELECT
+           vbc.calendario_id,
+           vbc.semana_enfunde,
+           vbc.anio,
+           vbc.saldo_en_campo,
+           vbc.color_cinta,
+           vbc.color_hex
+         FROM vw_balance_campo vbc
+         WHERE vbc.finca_id = $1
+           AND vbc.saldo_en_campo > 0
+       ),
+       inicio AS (
+         SELECT
+           re.calendario_id,
+           MIN(re.fecha)::date AS fecha_inicio
+         FROM registro_enfunde re
+         WHERE re.finca_id = $1
+         GROUP BY re.calendario_id
+       )
+       SELECT
+         s.calendario_id,
+         s.semana_enfunde,
+         s.anio,
+         s.saldo_en_campo,
+         s.color_cinta,
+         s.color_hex,
+         i.fecha_inicio,
+         COALESCE((
+           SELECT SUM(h.unidades_calor_dia)::numeric
+           FROM historial_clima_fincas h
+           WHERE h.finca_id = $1
+             AND i.fecha_inicio IS NOT NULL
+             AND h.fecha >= i.fecha_inicio
+         ), 0)::numeric AS uc_acumuladas
+       FROM saldo s
+       LEFT JOIN inicio i ON i.calendario_id = s.calendario_id
+       ORDER BY s.anio ASC, s.semana_enfunde ASC`,
 			[fincaId],
 		);
 		return rows || [];

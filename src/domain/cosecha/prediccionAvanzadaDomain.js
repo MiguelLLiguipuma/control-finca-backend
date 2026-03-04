@@ -159,11 +159,22 @@ function sumarDiasISO(fechaBase, dias) {
 	return d.toISOString().slice(0, 10);
 }
 
-function proyeccionPorLote(inventario, ratio, corteInicio, corteFin, anioActual, semanaActual) {
+function proyeccionPorLote(
+	inventario,
+	ratio,
+	corteInicio,
+	corteFin,
+	anioActual,
+	semanaActual,
+	metaUc,
+	promedioUcDiario,
+) {
 	if (!Array.isArray(inventario)) return [];
 	const inicio = Number(corteInicio || 12);
 	const fin = Math.max(inicio, Number(corteFin || 13));
 	const ventana = Math.max(1, fin - inicio);
+	const metaUcSafe = Math.max(1, Number(metaUc || 900));
+	const ucDiarioSafe = Math.max(0.1, Number(promedioUcDiario || 12.8));
 	const todayUtc = new Date();
 
 	return inventario
@@ -172,20 +183,34 @@ function proyeccionPorLote(inventario, ratio, corteInicio, corteFin, anioActual,
 			const semanaEnfunde = Number(row.semana_enfunde || 0);
 			const saldo = asegurarEnteroNoNegativo(row.saldo_en_campo);
 			const edadActual = Math.max(0, semanasEntreISO(anio, semanaEnfunde, anioActual, semanaActual));
-			const semanasRestantes = Math.max(0, inicio - edadActual);
-			const diasFaltantes = Math.ceil(semanasRestantes * 7);
+			const semanasRestantesEdad = Math.max(0, inicio - edadActual);
+			const ucAcumuladas = Math.max(0, Number(row.uc_acumuladas || 0));
+			const faltanteUc = Math.max(0, metaUcSafe - ucAcumuladas);
+			const diasPorUc = Math.ceil(faltanteUc / ucDiarioSafe);
+			const diasPorEdad = Math.ceil(semanasRestantesEdad * 7);
+			const diasFaltantes =
+				ucAcumuladas > 0 ? Math.max(0, Math.round(diasPorUc * 0.65 + diasPorEdad * 0.35)) : diasPorEdad;
 			let madurez = 0;
+			const madurezTermica = clamp((ucAcumuladas / metaUcSafe) * 100, 0, 100);
 			if (edadActual < inicio) {
-				madurez = clamp((edadActual / Math.max(1, inicio)) * 80, 0, 79.9);
+				const madurezEdad = clamp((edadActual / Math.max(1, inicio)) * 80, 0, 79.9);
+				madurez =
+					ucAcumuladas > 0
+						? clamp(madurezTermica * 0.65 + madurezEdad * 0.35, 0, 79.9)
+						: madurezEdad;
 			} else if (edadActual <= fin) {
-				madurez = clamp(80 + ((edadActual - inicio) / ventana) * 20, 80, 100);
+				const madurezEdad = clamp(80 + ((edadActual - inicio) / ventana) * 20, 80, 100);
+				madurez =
+					ucAcumuladas > 0
+						? clamp(madurezTermica * 0.65 + madurezEdad * 0.35, 80, 100)
+						: madurezEdad;
 			} else {
 				madurez = 100;
 			}
 			const mensaje =
-				edadActual > fin
+				edadActual > fin || madurezTermica >= 98
 					? 'Corte Urgente'
-					: edadActual >= inicio
+					: edadActual >= inicio || madurezTermica >= 85
 					? 'Proxima Cosecha'
 					: 'En Desarrollo';
 			const fechaEstimada = sumarDiasISO(todayUtc, diasFaltantes);
@@ -202,7 +227,7 @@ function proyeccionPorLote(inventario, ratio, corteInicio, corteFin, anioActual,
 				fecha_estimada: fechaEstimada,
 				cajas_esperadas: asegurarEnteroNoNegativo(saldo * Number(ratio || 1)),
 				mensaje_clima: mensaje,
-				tendencia_climatica: 'Basado en historico operativo',
+				tendencia_climatica: ucDiarioSafe >= 14 ? 'Calor Alto' : 'Normal',
 			};
 		})
 		.sort((a, b) => a.dias_faltantes - b.dias_faltantes);
@@ -279,6 +304,8 @@ export function construirPrediccionAvanzada({
 			configSafe.semanaFin,
 			now.anio,
 			now.semana,
+			configSafe.metaUc,
+			configSafe.promedioUcDiario,
 		);
 
 		const totalSaldo = proyecciones.reduce((acc, p) => acc + Number(p.saldo_en_campo || 0), 0);
@@ -359,6 +386,8 @@ export function construirPrediccionAvanzada({
 		configSafe.semanaFin,
 		now.anio,
 		now.semana,
+		configSafe.metaUc,
+		configSafe.promedioUcDiario,
 	);
 
 	const respuesta = {
