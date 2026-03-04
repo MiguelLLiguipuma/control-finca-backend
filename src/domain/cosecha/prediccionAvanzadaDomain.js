@@ -135,29 +135,60 @@ function asegurarEnteroNoNegativo(value) {
 	return Math.max(0, Math.round(n));
 }
 
+function isoWeekStartDateUTC(anio, semana) {
+	const january4 = new Date(Date.UTC(anio, 0, 4));
+	const day = january4.getUTCDay() || 7;
+	const mondayWeek1 = new Date(january4);
+	mondayWeek1.setUTCDate(january4.getUTCDate() - day + 1);
+	const target = new Date(mondayWeek1);
+	target.setUTCDate(mondayWeek1.getUTCDate() + (semana - 1) * 7);
+	target.setUTCHours(0, 0, 0, 0);
+	return target;
+}
+
+function semanasEntreISO(anioInicio, semanaInicio, anioFin, semanaFin) {
+	const a = isoWeekStartDateUTC(anioInicio, semanaInicio);
+	const b = isoWeekStartDateUTC(anioFin, semanaFin);
+	const diffDays = (b.getTime() - a.getTime()) / 86400000;
+	return diffDays / 7;
+}
+
+function sumarDiasISO(fechaBase, dias) {
+	const d = new Date(Date.UTC(fechaBase.getUTCFullYear(), fechaBase.getUTCMonth(), fechaBase.getUTCDate()));
+	d.setUTCDate(d.getUTCDate() + Math.max(0, Number(dias || 0)));
+	return d.toISOString().slice(0, 10);
+}
+
 function proyeccionPorLote(inventario, ratio, corteInicio, corteFin, anioActual, semanaActual) {
 	if (!Array.isArray(inventario)) return [];
-	const centro = (Number(corteInicio || 12) + Number(corteFin || 13)) / 2;
+	const inicio = Number(corteInicio || 12);
+	const fin = Math.max(inicio, Number(corteFin || 13));
+	const ventana = Math.max(1, fin - inicio);
+	const todayUtc = new Date();
 
 	return inventario
 		.map((row) => {
 			const anio = Number(row.anio || anioActual);
 			const semanaEnfunde = Number(row.semana_enfunde || 0);
 			const saldo = asegurarEnteroNoNegativo(row.saldo_en_campo);
-			const edadActual = Math.max(
-				0,
-				(anioActual - anio) * 52 + (semanaActual - semanaEnfunde),
-			);
-			const semanasRestantes = Math.max(0, Number(corteInicio || 12) - edadActual);
-			const diasFaltantes = semanasRestantes * 7;
-			const distanciaCentro = Math.abs(edadActual - centro);
-			const madurez = clamp(100 - distanciaCentro * 12.5, 10, 100);
+			const edadActual = Math.max(0, semanasEntreISO(anio, semanaEnfunde, anioActual, semanaActual));
+			const semanasRestantes = Math.max(0, inicio - edadActual);
+			const diasFaltantes = Math.ceil(semanasRestantes * 7);
+			let madurez = 0;
+			if (edadActual < inicio) {
+				madurez = clamp((edadActual / Math.max(1, inicio)) * 80, 0, 79.9);
+			} else if (edadActual <= fin) {
+				madurez = clamp(80 + ((edadActual - inicio) / ventana) * 20, 80, 100);
+			} else {
+				madurez = 100;
+			}
 			const mensaje =
-				edadActual > Number(corteFin || 13)
+				edadActual > fin
 					? 'Corte Urgente'
-					: edadActual >= Number(corteInicio || 12)
+					: edadActual >= inicio
 					? 'Proxima Cosecha'
 					: 'En Desarrollo';
+			const fechaEstimada = sumarDiasISO(todayUtc, diasFaltantes);
 
 			return {
 				calendario_id: Number(row.calendario_id),
@@ -168,7 +199,7 @@ function proyeccionPorLote(inventario, ratio, corteInicio, corteFin, anioActual,
 				saldo_en_campo: saldo,
 				progreso_madurez: round(madurez, 1),
 				dias_faltantes: diasFaltantes,
-				fecha_estimada: null,
+				fecha_estimada: fechaEstimada,
 				cajas_esperadas: asegurarEnteroNoNegativo(saldo * Number(ratio || 1)),
 				mensaje_clima: mensaje,
 				tendencia_climatica: 'Basado en historico operativo',
@@ -248,10 +279,7 @@ export function construirPrediccionAvanzada({
 			configSafe.semanaFin,
 			now.anio,
 			now.semana,
-		).map((row) => ({
-			...row,
-			fecha_estimada: calcularFechaISODesdeSemana(target.anio, target.semana),
-		}));
+		);
 
 		const totalSaldo = proyecciones.reduce((acc, p) => acc + Number(p.saldo_en_campo || 0), 0);
 		const estimado = round(totalSaldo * 0.55, 0);
@@ -331,10 +359,7 @@ export function construirPrediccionAvanzada({
 		configSafe.semanaFin,
 		now.anio,
 		now.semana,
-	).map((row) => ({
-		...row,
-		fecha_estimada: calcularFechaISODesdeSemana(target.anio, target.semana),
-	}));
+	);
 
 	const respuesta = {
 		finca_id: fincaId,

@@ -2,7 +2,7 @@ import { PrediccionAvanzadaModel } from '../../models/cosecha/prediccionAvanzada
 import { construirPrediccionAvanzada } from '../../domain/cosecha/prediccionAvanzadaDomain.js';
 import { resolveFincaScope, assertFincaInScope } from '../../utils/accessScope.js';
 
-const ALGORITMO_VERSION = 'agri-ts-v1';
+const ALGORITMO_VERSION = 'agri-ts-v2';
 
 function crearError(message, status = 400) {
 	const err = new Error(message);
