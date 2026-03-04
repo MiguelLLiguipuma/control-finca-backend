@@ -109,8 +109,7 @@ export const PrediccionAvanzadaModel = {
            (rc.cantidad_racimos + rc.cantidad_rechazo)::numeric AS total_racimos,
            GREATEST(
              0,
-             DATE_PART(
-               'day',
+             (
                date_trunc('week', rc.fecha)::date -
                to_date(
                  ce.anio::text || '-' || LPAD(ce.semana::text, 2, '0') || '-1',
