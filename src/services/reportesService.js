@@ -157,4 +157,27 @@ export const ReportesService = {
 	getAuditoria(filtros) {
 		return ReportesModel.obtenerAuditoria(filtros);
 	},
+
+	async getScoreSaludSemanal({ fincaId, anio, semana, usuarioId, refresh }) {
+		if (refresh) {
+			return ReportesModel.recalcularScoreSaludSemanal({
+				fincaId,
+				anio,
+				semana,
+				usuarioId,
+			});
+		}
+		const cached = await ReportesModel.obtenerScoreSaludSemanal({
+			fincaId,
+			anio,
+			semana,
+		});
+		if (cached) return cached;
+		return ReportesModel.recalcularScoreSaludSemanal({
+			fincaId,
+			anio,
+			semana,
+			usuarioId,
+		});
+	},
 };

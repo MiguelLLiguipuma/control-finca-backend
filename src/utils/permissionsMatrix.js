@@ -34,6 +34,11 @@ export const PERMISSIONS_MATRIX = [
 
 	{ method: 'GET', path: '/api/reportes/auditoria', roles: ['ADMIN', 'SUPERVISOR'] },
 	{
+		method: 'GET',
+		path: '/api/reportes/score-salud/:fincaId/:anio',
+		roles: ['ADMIN', 'SUPERVISOR', 'OPERADOR'],
+	},
+	{
 		method: 'POST',
 		path: '/api/cosecha/registrar-liquidacion',
 		roles: ['ADMIN', 'SUPERVISOR', 'OPERADOR'],

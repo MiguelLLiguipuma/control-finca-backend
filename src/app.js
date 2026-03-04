@@ -90,6 +90,7 @@ export function createApp() {
 				'empresas',
 				'fincas',
 				'calendarios_enfunde',
+				'indicadores_produccion_semanal',
 				'registro_enfunde',
 				'registro_cosecha',
 				'fumigaciones_sanidad',

@@ -25,6 +25,17 @@ function parseAnio(params) {
 	return anio;
 }
 
+function parseSemana(query) {
+	if (!query?.semana) return null;
+	const semana = Number(query.semana);
+	if (!Number.isInteger(semana) || semana < 1 || semana > 53) {
+		const err = new Error('semana invalida');
+		err.status = 400;
+		throw err;
+	}
+	return semana;
+}
+
 function manejarError(res, err, fallback = 500) {
 	const status = Number(err?.status) || fallback;
 	return res.status(status).json({ error: err.message || 'Error interno' });
@@ -70,6 +81,16 @@ function scopeReportes(req) {
 		modo,
 		scope,
 	};
+}
+
+function getIsoWeekNow() {
+	const now = new Date();
+	const d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+	const dayNum = d.getUTCDay() || 7;
+	d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+	const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+	const weekNo = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+	return { anio: d.getUTCFullYear(), semana: weekNo };
 }
 
 export const ReportesController = {
@@ -303,6 +324,31 @@ export const ReportesController = {
 				limit,
 			});
 			res.json(data);
+		} catch (err) {
+			manejarError(res, err);
+		}
+	},
+
+	async scoreSaludSemanal(req, res) {
+		try {
+			const fincaId = parseFincaId(req.params);
+			await asegurarAccesoFinca(req, fincaId);
+
+			const anio = parseAnio(req.params);
+			const semanaParam = parseSemana(req.query);
+			const refreshRaw = String(req.query?.refresh || '').toLowerCase();
+			const refresh = refreshRaw === '1' || refreshRaw === 'true';
+			const { semana: semanaActual } = getIsoWeekNow();
+			const semana = semanaParam || semanaActual;
+
+			const data = await ReportesService.getScoreSaludSemanal({
+				fincaId,
+				anio,
+				semana,
+				usuarioId: Number(req.user?.id || 0) || null,
+				refresh,
+			});
+			res.json(data || null);
 		} catch (err) {
 			manejarError(res, err);
 		}

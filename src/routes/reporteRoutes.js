@@ -53,6 +53,11 @@ router.get(
 	verificarSesion,
 	ReportesController.totalSemanal,
 );
+router.get(
+	'/score-salud/:fincaId/:anio',
+	verificarSesion,
+	ReportesController.scoreSaludSemanal,
+);
 
 router.get('/alertas', verificarSesion, ReportesController.alertas);
 router.get('/fumigaciones', verificarSesion, ReportesController.fumigaciones);

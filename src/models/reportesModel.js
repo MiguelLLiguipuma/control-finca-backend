@@ -674,4 +674,234 @@ export const ReportesModel = {
 		const { rows } = await query(sql, params);
 		return rows;
 	},
+
+	async obtenerScoreSaludSemanal({ fincaId, anio, semana }) {
+		const { rows } = await query(
+			`SELECT
+         id,
+         finca_id,
+         anio,
+         semana,
+         total_racimos,
+         corte_ideal_pct,
+         rechazo_pct,
+         edad_promedio,
+         variacion_semanal_pct,
+         score_corte,
+         score_rechazo,
+         score_edad,
+         score_variacion,
+         score_total,
+         clasificacion,
+         calculado_at,
+         calculado_por_usuario_id
+       FROM indicadores_produccion_semanal
+       WHERE finca_id = $1
+         AND anio = $2
+         AND semana = $3
+       LIMIT 1`,
+			[fincaId, anio, semana],
+		);
+		return rows[0] || null;
+	},
+
+	async recalcularScoreSaludSemanal({ fincaId, anio, semana, usuarioId }) {
+		const { rows } = await query(
+			`WITH base AS (
+         SELECT
+           rc.finca_id,
+           EXTRACT(ISOYEAR FROM rc.fecha)::int AS anio_iso,
+           EXTRACT(WEEK FROM rc.fecha)::int AS semana_iso,
+           (rc.cantidad_racimos + rc.cantidad_rechazo)::numeric AS total_lote,
+           rc.cantidad_rechazo::numeric AS rechazo_lote,
+           (
+             (
+               (EXTRACT(ISOYEAR FROM rc.fecha)::int - ce.anio) * 52
+             ) + (
+               EXTRACT(WEEK FROM rc.fecha)::int - ce.semana
+             )
+           )::numeric AS edad_semana
+         FROM registro_cosecha rc
+         JOIN calendarios_enfunde ce ON ce.id = rc.calendario_id
+         WHERE rc.finca_id = $1
+       ),
+       week_data AS (
+         SELECT
+           COALESCE(SUM(total_lote), 0)::numeric AS total_racimos,
+           COALESCE(SUM(rechazo_lote), 0)::numeric AS total_rechazo,
+           COALESCE(
+             SUM(
+               CASE
+                 WHEN edad_semana BETWEEN 12 AND 13 THEN total_lote
+                 ELSE 0
+               END
+             ),
+             0
+           )::numeric AS total_corte_ideal,
+           COALESCE(SUM(edad_semana * total_lote), 0)::numeric AS edad_ponderada
+         FROM base
+         WHERE anio_iso = $2
+           AND semana_iso = $3
+       ),
+       current_week AS (
+         SELECT COALESCE(SUM(total_lote), 0)::numeric AS total_racimos
+         FROM base
+         WHERE anio_iso = $2
+           AND semana_iso = $3
+       ),
+       prev_label AS (
+         SELECT anio_iso, semana_iso
+         FROM base
+         WHERE (anio_iso < $2) OR (anio_iso = $2 AND semana_iso < $3)
+         GROUP BY anio_iso, semana_iso
+         ORDER BY anio_iso DESC, semana_iso DESC
+         LIMIT 1
+       ),
+       prev_week AS (
+         SELECT COALESCE(SUM(b.total_lote), 0)::numeric AS total_racimos
+         FROM base b
+         JOIN prev_label p
+           ON p.anio_iso = b.anio_iso
+          AND p.semana_iso = b.semana_iso
+       ),
+       metrics AS (
+         SELECT
+           wd.total_racimos,
+           CASE
+             WHEN wd.total_racimos > 0
+               THEN ROUND((wd.total_corte_ideal / wd.total_racimos) * 100, 2)
+             ELSE 0
+           END AS corte_ideal_pct,
+           CASE
+             WHEN wd.total_racimos > 0
+               THEN ROUND((wd.total_rechazo / wd.total_racimos) * 100, 2)
+             ELSE 0
+           END AS rechazo_pct,
+           CASE
+             WHEN wd.total_racimos > 0
+               THEN ROUND(wd.edad_ponderada / wd.total_racimos, 2)
+             ELSE 0
+           END AS edad_promedio,
+           CASE
+             WHEN COALESCE(pw.total_racimos, 0) > 0
+               THEN ROUND(((cw.total_racimos - pw.total_racimos) / pw.total_racimos) * 100, 2)
+             ELSE 0
+           END AS variacion_semanal_pct
+         FROM week_data wd
+         CROSS JOIN current_week cw
+         LEFT JOIN prev_week pw ON true
+       ),
+       scores AS (
+         SELECT
+           total_racimos,
+           corte_ideal_pct,
+           rechazo_pct,
+           edad_promedio,
+           variacion_semanal_pct,
+           ROUND(LEAST(100, GREATEST(0, corte_ideal_pct)), 2) AS score_corte,
+           ROUND(LEAST(100, GREATEST(0, 100 - (rechazo_pct * 2))), 2) AS score_rechazo,
+           ROUND(LEAST(100, GREATEST(0, 100 - (ABS(edad_promedio - 12.5) * 20))), 2) AS score_edad,
+           ROUND(LEAST(100, GREATEST(0, 100 - (ABS(variacion_semanal_pct) * 4))), 2) AS score_variacion
+         FROM metrics
+       ),
+       final AS (
+         SELECT
+           total_racimos::int AS total_racimos,
+           corte_ideal_pct,
+           rechazo_pct,
+           edad_promedio,
+           variacion_semanal_pct,
+           score_corte,
+           score_rechazo,
+           score_edad,
+           score_variacion,
+           ROUND(
+             (score_corte * 0.35) +
+             (score_rechazo * 0.30) +
+             (score_edad * 0.20) +
+             (score_variacion * 0.15),
+             2
+           ) AS score_total
+         FROM scores
+       )
+       INSERT INTO indicadores_produccion_semanal (
+         finca_id,
+         anio,
+         semana,
+         total_racimos,
+         corte_ideal_pct,
+         rechazo_pct,
+         edad_promedio,
+         variacion_semanal_pct,
+         score_corte,
+         score_rechazo,
+         score_edad,
+         score_variacion,
+         score_total,
+         clasificacion,
+         calculado_at,
+         calculado_por_usuario_id,
+         updated_at
+       )
+       SELECT
+         $1 AS finca_id,
+         $2 AS anio,
+         $3 AS semana,
+         f.total_racimos,
+         f.corte_ideal_pct,
+         f.rechazo_pct,
+         f.edad_promedio,
+         f.variacion_semanal_pct,
+         f.score_corte,
+         f.score_rechazo,
+         f.score_edad,
+         f.score_variacion,
+         f.score_total,
+         CASE
+           WHEN f.score_total >= 80 THEN 'EXCELENTE'
+           WHEN f.score_total >= 60 THEN 'ESTABLE'
+           ELSE 'RIESGO'
+         END AS clasificacion,
+         NOW() AS calculado_at,
+         $4::int AS calculado_por_usuario_id,
+         NOW() AS updated_at
+       FROM final f
+       ON CONFLICT (finca_id, anio, semana)
+       DO UPDATE
+         SET total_racimos = EXCLUDED.total_racimos,
+             corte_ideal_pct = EXCLUDED.corte_ideal_pct,
+             rechazo_pct = EXCLUDED.rechazo_pct,
+             edad_promedio = EXCLUDED.edad_promedio,
+             variacion_semanal_pct = EXCLUDED.variacion_semanal_pct,
+             score_corte = EXCLUDED.score_corte,
+             score_rechazo = EXCLUDED.score_rechazo,
+             score_edad = EXCLUDED.score_edad,
+             score_variacion = EXCLUDED.score_variacion,
+             score_total = EXCLUDED.score_total,
+             clasificacion = EXCLUDED.clasificacion,
+             calculado_at = EXCLUDED.calculado_at,
+             calculado_por_usuario_id = EXCLUDED.calculado_por_usuario_id,
+             updated_at = NOW()
+       RETURNING
+         id,
+         finca_id,
+         anio,
+         semana,
+         total_racimos,
+         corte_ideal_pct,
+         rechazo_pct,
+         edad_promedio,
+         variacion_semanal_pct,
+         score_corte,
+         score_rechazo,
+         score_edad,
+         score_variacion,
+         score_total,
+         clasificacion,
+         calculado_at,
+         calculado_por_usuario_id`,
+			[fincaId, anio, semana, usuarioId || null],
+		);
+		return rows[0] || null;
+	},
 };
