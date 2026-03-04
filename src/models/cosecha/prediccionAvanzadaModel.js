@@ -83,6 +83,7 @@ export const PrediccionAvanzadaModel = {
          SELECT unidades_calor_dia
          FROM historial_clima_fincas
          WHERE finca_id = $1
+           AND fecha <= CURRENT_DATE
          ORDER BY fecha DESC
          LIMIT 7
        ) x`,
@@ -203,6 +204,7 @@ export const PrediccionAvanzadaModel = {
            WHERE h.finca_id = $1
              AND i.fecha_inicio IS NOT NULL
              AND h.fecha >= i.fecha_inicio
+             AND h.fecha <= CURRENT_DATE
          ), 0)::numeric AS uc_acumuladas
        FROM saldo s
        LEFT JOIN inicio i ON i.calendario_id = s.calendario_id

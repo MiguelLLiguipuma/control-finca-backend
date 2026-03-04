@@ -188,29 +188,20 @@ function proyeccionPorLote(
 			const faltanteUc = Math.max(0, metaUcSafe - ucAcumuladas);
 			const diasPorUc = Math.ceil(faltanteUc / ucDiarioSafe);
 			const diasPorEdad = Math.ceil(semanasRestantesEdad * 7);
-			const diasFaltantes =
-				ucAcumuladas > 0 ? Math.max(0, Math.round(diasPorUc * 0.65 + diasPorEdad * 0.35)) : diasPorEdad;
-			let madurez = 0;
 			const madurezTermica = clamp((ucAcumuladas / metaUcSafe) * 100, 0, 100);
-			if (edadActual < inicio) {
-				const madurezEdad = clamp((edadActual / Math.max(1, inicio)) * 80, 0, 79.9);
-				madurez =
-					ucAcumuladas > 0
-						? clamp(madurezTermica * 0.65 + madurezEdad * 0.35, 0, 79.9)
-						: madurezEdad;
-			} else if (edadActual <= fin) {
-				const madurezEdad = clamp(80 + ((edadActual - inicio) / ventana) * 20, 80, 100);
-				madurez =
-					ucAcumuladas > 0
-						? clamp(madurezTermica * 0.65 + madurezEdad * 0.35, 80, 100)
-						: madurezEdad;
-			} else {
-				madurez = 100;
-			}
+			const madurezEdad =
+				edadActual < inicio
+					? clamp((edadActual / Math.max(1, inicio)) * 80, 0, 79.9)
+					: edadActual <= fin
+					? clamp(80 + ((edadActual - inicio) / ventana) * 20, 80, 100)
+					: 100;
+			const usaClima = ucAcumuladas > 0;
+			const diasFaltantes = usaClima ? Math.max(0, diasPorUc) : diasPorEdad;
+			const madurez = usaClima ? madurezTermica : madurezEdad;
 			const mensaje =
-				edadActual > fin || madurezTermica >= 98
+				edadActual > fin || madurez >= 98
 					? 'Corte Urgente'
-					: edadActual >= inicio || madurezTermica >= 85
+					: edadActual >= inicio || madurez >= 85
 					? 'Proxima Cosecha'
 					: 'En Desarrollo';
 			const fechaEstimada = sumarDiasISO(todayUtc, diasFaltantes);
