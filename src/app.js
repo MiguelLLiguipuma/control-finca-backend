@@ -17,6 +17,7 @@ import { createRateLimit } from './middlewares/rateLimitSimple.js';
 import { requestContext } from './middlewares/requestContext.js';
 import { requestLogger } from './middlewares/requestLogger.js';
 import { logger } from './utils/logger.js';
+import { query } from './db/db.js';
 
 function getAllowedOrigins() {
 	const envList = String(process.env.CORS_ORIGINS || '')
@@ -38,6 +39,15 @@ function isAllowedVercelPreview(origin) {
 	return /^https:\/\/control-finca-frontend-[a-z0-9-]+\.vercel\.app$/i.test(
 		String(origin || ''),
 	);
+}
+
+function canAccessSecurityDebug(req) {
+	const expected = String(process.env.DEBUG_HEALTH_TOKEN || '').trim();
+	if (!expected) {
+		return process.env.NODE_ENV !== 'production';
+	}
+	const got = String(req.headers['x-debug-token'] || '').trim();
+	return got && got === expected;
 }
 
 export function createApp() {
@@ -69,6 +79,63 @@ export function createApp() {
 
 	app.get('/debug', (_req, res) => {
 		res.json({ status: 'OK', message: 'Si ves esto, el servidor funciona' });
+	});
+
+	app.get('/debug/security', async (req, res) => {
+		if (!canAccessSecurityDebug(req)) {
+			return res.status(403).json({ message: 'No autorizado' });
+		}
+		try {
+			const tablasRls = [
+				'registro_enfunde',
+				'registro_cosecha',
+				'fumigaciones_sanidad',
+				'embarque_detalles',
+				'embarques',
+			];
+
+			const [migrationsRes, rlsRes] = await Promise.all([
+				query(
+					`SELECT name, executed_at
+           FROM schema_migrations
+           ORDER BY executed_at DESC
+           LIMIT 20`,
+				),
+				query(
+					`SELECT c.relname AS tabla, c.relrowsecurity AS rls_enabled
+           FROM pg_class c
+           JOIN pg_namespace n ON n.oid = c.relnamespace
+           WHERE n.nspname = 'public'
+             AND c.relname = ANY($1::text[])
+           ORDER BY c.relname ASC`,
+					[tablasRls],
+				),
+			]);
+
+			const rlsRows = rlsRes.rows || [];
+			const rlsEnabledAll =
+				rlsRows.length === tablasRls.length &&
+				rlsRows.every((r) => Boolean(r.rls_enabled));
+
+			return res.json({
+				status: 'OK',
+				node_env: process.env.NODE_ENV || 'development',
+				rls: {
+					expected_tables: tablasRls,
+					tables: rlsRows,
+					all_enabled: rlsEnabledAll,
+				},
+				migrations: migrationsRes.rows || [],
+			});
+		} catch (error) {
+			logger.error('debug_security_error', {
+				request_id: req.requestId,
+				error: error?.message || 'unknown',
+			});
+			return res
+				.status(500)
+				.json({ status: 'ERROR', message: 'No se pudo validar seguridad' });
+		}
 	});
 
 	app.use('/api/reportes', reporteRoutes);

@@ -10,6 +10,8 @@
     "migrate": "node scripts/migrate.js",
     "test": "node --test",
     "test:tenant:e2e": "node --test test/multitenant.e2e.test.js",
+    "test:security": "node --test test/accessScope.guardrails.test.js test/permissions.matrix.test.js",
+    "verify:release": "npm run lint && npm run test:security && npm run test:tenant:e2e",
     "lint": "node scripts/lint.js",
     "prestart": "npm run migrate"
   },

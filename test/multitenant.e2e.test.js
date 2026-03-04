@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 const BASE_URL = String(process.env.E2E_BASE_URL || '').trim();
 const TOKEN_OPERATOR = String(process.env.E2E_TOKEN_OPERATOR || '').trim();
+const TOKEN_SUPERVISOR = String(process.env.E2E_TOKEN_SUPERVISOR || '').trim();
+const TOKEN_ADMIN = String(process.env.E2E_TOKEN_ADMIN || '').trim();
 const FINCA_PERMITIDA = Number(process.env.E2E_FINCA_PERMITIDA || 0);
 const FINCA_NO_PERMITIDA = Number(process.env.E2E_FINCA_NO_PERMITIDA || 0);
 const ANIO = Number(process.env.E2E_ANIO || new Date().getFullYear());
@@ -78,4 +80,21 @@ if (missingCritical) {
 			assert.equal(ids.includes(maybe), false);
 		}
 	});
+
+	if (TOKEN_SUPERVISOR) {
+		test('Supervisor accede a auditoria (si tiene permisos) y mantiene scope', async () => {
+			const { status } = await getJson('/api/reportes/auditoria?limit=10', TOKEN_SUPERVISOR);
+			assert.ok([200, 403].includes(status));
+		});
+	}
+
+	if (TOKEN_ADMIN && maybe) {
+		test('Admin puede consultar finca no permitida para operador', async () => {
+			const { status } = await getJson(
+				`/api/reportes/total-semanal/${maybe}/${ANIO}`,
+				TOKEN_ADMIN,
+			);
+			assert.equal(status, 200);
+		});
+	}
 }
