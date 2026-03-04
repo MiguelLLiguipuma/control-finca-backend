@@ -1,6 +1,7 @@
 import { FincaModel } from '../models/fincaModel.js';
 import { EmpresaModel } from '../models/empresaModel.js';
 import { resolveEmpresaScope } from '../utils/accessScope.js';
+import { assertFincaInScope, resolveFincaScope } from '../utils/accessScope.js';
 
 function normalizeRole(role) {
 	const raw = String(role || '').trim().toUpperCase();
@@ -17,8 +18,12 @@ export const FincaService = {
 			rol: ctx?.rol,
 			userId,
 		});
-		if (role === 'OPERADOR' && userId > 0) {
-			if (empresaScope.enforce && !empresaScope.allowedEmpresaIds.length) return [];
+		const fincaScope = await resolveFincaScope({
+			rol: ctx?.rol,
+			userId,
+		});
+		if (fincaScope.enforce && userId > 0) {
+			if (!fincaScope.allowedFincaIds.length) return [];
 			return (await FincaModel.findByUsuarioId(userId)).rows;
 		}
 		if (empresaScope.enforce) {
@@ -29,6 +34,11 @@ export const FincaService = {
 	},
 	getById: async (id, ctx = {}) => {
 		const userId = Number(ctx?.userId || 0);
+		const fincaScope = await resolveFincaScope({
+			rol: ctx?.rol,
+			userId,
+		});
+		assertFincaInScope(id, fincaScope);
 		const empresaScope = await resolveEmpresaScope({
 			rol: ctx?.rol,
 			userId,

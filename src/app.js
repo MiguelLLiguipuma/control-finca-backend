@@ -87,6 +87,9 @@ export function createApp() {
 		}
 		try {
 			const tablasRls = [
+				'empresas',
+				'fincas',
+				'calendarios_enfunde',
 				'registro_enfunde',
 				'registro_cosecha',
 				'fumigaciones_sanidad',
