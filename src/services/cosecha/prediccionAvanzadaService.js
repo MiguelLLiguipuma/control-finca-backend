@@ -22,11 +22,6 @@ function normalizarVentana(raw) {
 	return Math.max(4, Math.min(n, 8));
 }
 
-function normalizarBool(raw) {
-	const v = String(raw || '').trim().toLowerCase();
-	return v === '1' || v === 'true' || v === 'yes';
-}
-
 function normalizarConfig(configRow, promedioUcDiario) {
 	const semanaInicio = Math.max(1, Math.min(52, Number(configRow?.semana_inicio || 12)));
 	const semanaFinRaw = Math.max(1, Math.min(52, Number(configRow?.semana_fin || 13)));
@@ -38,27 +33,6 @@ function normalizarConfig(configRow, promedioUcDiario) {
 		semanaInicio,
 		semanaFin,
 	};
-}
-
-function getIsoWeekNow() {
-	const now = new Date();
-	const d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
-	const dayNum = d.getUTCDay() || 7;
-	d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-	const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-	const weekNo = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
-	return { anio: d.getUTCFullYear(), semana: weekNo };
-}
-
-function getSiguienteIsoWeek() {
-	const now = getIsoWeekNow();
-	let semana = now.semana + 1;
-	let anio = now.anio;
-	if (semana > 53) {
-		semana = 1;
-		anio += 1;
-	}
-	return { anio, semana };
 }
 
 export const PrediccionAvanzadaService = {
@@ -81,8 +55,6 @@ export const PrediccionAvanzadaService = {
 		}
 
 		const ventana = normalizarVentana(query?.ventana);
-		const refresh = normalizarBool(query?.refresh);
-		const objetivo = getSiguienteIsoWeek();
 
 		const [configRaw, promedioUcDiario, inventario] = await Promise.all([
 			PrediccionAvanzadaModel.obtenerConfiguracionFinca(finca),
@@ -99,51 +71,19 @@ export const PrediccionAvanzadaService = {
 			semanasHistoricas: Math.max(52, ventana * 14),
 		});
 
-		const { resultado, sourceHash } = construirPrediccionAvanzada({
+		const { resultado } = construirPrediccionAvanzada({
 			series,
 			inventario,
 			config,
 			fincaId: finca,
 		});
 
-		if (!refresh) {
-			const cached = await PrediccionAvanzadaModel.obtenerCachePrediccion({
-				empresaId: Number(fincaRow.empresa_id || empresaUsuario || 0),
-				fincaId: finca,
-				anioObjetivo: objetivo.anio,
-				semanaObjetivo: objetivo.semana,
-				ventana,
-				algoritmoVersion: ALGORITMO_VERSION,
-				sourceHash,
-			});
-			if (cached) {
-				return {
-					...cached,
-					cache: {
-						hit: true,
-						algoritmo_version: ALGORITMO_VERSION,
-						ventana_historial: ventana,
-					},
-				};
-			}
-		}
-
-		await PrediccionAvanzadaModel.guardarCachePrediccion({
-			empresaId: Number(fincaRow.empresa_id || empresaUsuario || 0),
-			fincaId: finca,
-			anioObjetivo: objetivo.anio,
-			semanaObjetivo: objetivo.semana,
-			ventana,
-			algoritmoVersion: ALGORITMO_VERSION,
-			sourceHash,
-			resultado,
-			usuarioId: Number(user?.id || 0) || null,
-		});
-
 		return {
 			...resultado,
 			cache: {
 				hit: false,
+				disabled: true,
+				reason: 'recalculo_forzado',
 				algoritmo_version: ALGORITMO_VERSION,
 				ventana_historial: ventana,
 			},
