@@ -52,7 +52,11 @@ function computeDbScope() {
 
 async function applyDbScope(client) {
 	const s = computeDbScope();
-	await client.query(
+	const baseQuery =
+		typeof client.__originalQuery === 'function'
+			? client.__originalQuery
+			: client.query.bind(client);
+	await baseQuery(
 		`SELECT
       set_config('app.user_id', $1, false),
       set_config('app.empresa_id', $2, false),
@@ -65,9 +69,8 @@ async function applyDbScope(client) {
 }
 
 const originalConnect = pool.connect.bind(pool);
-pool.connect = async (...args) => {
-	const client = await originalConnect(...args);
-
+function patchClientScope(client) {
+	if (!client) return client;
 	if (client.__scopePatched) return client;
 
 	const originalClientQuery = client.query.bind(client);
@@ -75,6 +78,7 @@ pool.connect = async (...args) => {
 
 	client.__scopePatched = true;
 	client.__scopeApplied = false;
+	client.__originalQuery = originalClientQuery;
 
 	client.query = async (...queryArgs) => {
 		if (!client.__scopeApplied) {
@@ -90,6 +94,23 @@ pool.connect = async (...args) => {
 	};
 
 	return client;
+}
+
+pool.connect = (...args) => {
+	if (typeof args[0] === 'function') {
+		const callback = args[0];
+		return originalConnect((err, client, done) => {
+			if (err || !client) return callback(err, client, done);
+			const patched = patchClientScope(client);
+			const wrappedDone = (...doneArgs) => {
+				patched.__scopeApplied = false;
+				return done(...doneArgs);
+			};
+			return callback(null, patched, wrappedDone);
+		});
+	}
+
+	return originalConnect(...args).then((client) => patchClientScope(client));
 };
 
 export const query = async (text, params) => {
