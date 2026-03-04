@@ -2,7 +2,16 @@ import { query } from '../db/db.js';
 
 export const EmpresaModel = {
 	findAll: () => query('SELECT * FROM empresas ORDER BY id'),
+	findAllByIds: (empresaIds) =>
+		query('SELECT * FROM empresas WHERE id = ANY($1::int[]) ORDER BY id', [
+			empresaIds,
+		]),
 	findById: (id) => query('SELECT * FROM empresas WHERE id=$1', [id]),
+	findByIdScoped: (id, empresaIds) =>
+		query('SELECT * FROM empresas WHERE id = $1 AND id = ANY($2::int[])', [
+			id,
+			empresaIds,
+		]),
 	findByNombre: (nombre) =>
 		query('SELECT * FROM empresas WHERE nombre=$1', [nombre]),
 	create: ({ nombre, ruc, direccion, telefono }) =>

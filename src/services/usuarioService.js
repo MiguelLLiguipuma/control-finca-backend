@@ -1,5 +1,6 @@
 import { UsuarioModel } from '../models/usuarioModel.js';
 import { FincaModel } from '../models/fincaModel.js';
+import { EmpresaModel } from '../models/empresaModel.js';
 import { query } from '../db/db.js';
 import { hashPassword, isPasswordHash } from '../utils/password.js';
 
@@ -39,9 +40,17 @@ export const UsuarioService = {
 		const nombre = String(payload?.nombre || '').trim();
 		const email = normalizarEmail(payload?.email);
 		const rawPassword = payload?.password;
+		const empresaId = Number(payload?.empresa_id || 0);
 		if (!nombre || !email || !rawPassword)
 			throw new Error('nombre, email y password son requeridos');
 		validarPassword(rawPassword);
+		if (payload?.empresa_id !== undefined) {
+			if (!Number.isInteger(empresaId) || empresaId <= 0) {
+				throw new Error('empresa_id invalido');
+			}
+			const emp = await EmpresaModel.findById(empresaId);
+			if (!emp.rows.length) throw new Error('empresa_id no existe');
+		}
 
 		const dup = await UsuarioModel.findByEmail(email);
 		if (dup.rows.length) throw new Error('Email en uso');
@@ -50,6 +59,7 @@ export const UsuarioService = {
 			...payload,
 			nombre,
 			email,
+			empresa_id: payload?.empresa_id ? empresaId : null,
 			password: hashPassword(rawPassword),
 		};
 		const creado = (await UsuarioModel.create(data)).rows[0];
@@ -70,6 +80,15 @@ export const UsuarioService = {
 		}
 		if (typeof payload?.nombre === 'string') {
 			data.nombre = payload.nombre.trim();
+		}
+		if (payload?.empresa_id !== undefined) {
+			const empresaId = Number(payload.empresa_id);
+			if (!Number.isInteger(empresaId) || empresaId <= 0) {
+				throw new Error('empresa_id invalido');
+			}
+			const emp = await EmpresaModel.findById(empresaId);
+			if (!emp.rows.length) throw new Error('empresa_id no existe');
+			data.empresa_id = empresaId;
 		}
 
 		let passwordChanged = false;

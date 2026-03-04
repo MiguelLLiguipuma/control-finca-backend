@@ -1,26 +1,12 @@
-import { query } from '../db/db.js';
 import { BalanzaService } from '../services/balanzaService.js';
+import {
+	assertFincaInScope,
+	resolveFincaScope,
+} from '../utils/accessScope.js';
 
 function manejarError(res, err, fallback = 500) {
   const status = Number(err?.status) || fallback;
   return res.status(status).json({ error: err.message || 'Error interno' });
-}
-
-function normalizeRole(role) {
-  const raw = String(role || '').trim().toUpperCase();
-  if (raw === 'TRABAJADOR' || raw === 'OPERARIO') return 'OPERADOR';
-  if (raw === 'ADMINISTRADOR' || raw === 'GERENTE') return 'ADMIN';
-  return raw;
-}
-
-async function getFincasPermitidasByUser(usuarioId) {
-  const { rows } = await query(
-    `SELECT finca_id
-     FROM usuarios_fincas
-     WHERE usuario_id = $1`,
-    [usuarioId],
-  );
-  return rows.map((r) => Number(r.finca_id));
 }
 
 function parseFincaId(queryParams) {
@@ -35,25 +21,16 @@ function parseFincaId(queryParams) {
 }
 
 async function resolveScope(req, fincaId) {
-  const role = normalizeRole(req.user?.rol);
-  if (role !== 'OPERADOR') {
-    return { fincaId, allowedFincas: null };
+  const scope = await resolveFincaScope({
+    rol: req.user?.rol,
+    userId: Number(req.user?.id || 0),
+  });
+  if (fincaId) {
+    assertFincaInScope(fincaId, scope);
   }
-
-  const allowedFincas = await getFincasPermitidasByUser(Number(req.user?.id || 0));
-  if (!allowedFincas.length) {
-    return { fincaId: null, allowedFincas: [] };
-  }
-
-  if (fincaId && !allowedFincas.includes(fincaId)) {
-    const err = new Error('No tiene permisos para consultar esta finca');
-    err.status = 403;
-    throw err;
-  }
-
   return {
     fincaId: fincaId || null,
-    allowedFincas,
+    allowedFincas: scope.enforce ? scope.allowedFincaIds : null,
   };
 }
 

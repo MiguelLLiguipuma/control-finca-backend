@@ -1,8 +1,31 @@
 import { EmpresaModel } from '../models/empresaModel.js';
+import {
+	resolveEmpresaScope,
+	assertEmpresaInScope,
+} from '../utils/accessScope.js';
 
 export const EmpresaService = {
-	getAll: async () => (await EmpresaModel.findAll()).rows,
-	getById: async (id) => (await EmpresaModel.findById(id)).rows[0],
+	getAll: async (ctx = {}) => {
+		const scope = await resolveEmpresaScope({
+			rol: ctx?.rol,
+			userId: Number(ctx?.userId || 0),
+		});
+		if (!scope.enforce) return (await EmpresaModel.findAll()).rows;
+		if (!scope.allowedEmpresaIds.length) return [];
+		return (await EmpresaModel.findAllByIds(scope.allowedEmpresaIds)).rows;
+	},
+	getById: async (id, ctx = {}) => {
+		const scope = await resolveEmpresaScope({
+			rol: ctx?.rol,
+			userId: Number(ctx?.userId || 0),
+		});
+		assertEmpresaInScope(id, scope);
+		return (
+			scope.enforce
+				? await EmpresaModel.findByIdScoped(id, scope.allowedEmpresaIds)
+				: await EmpresaModel.findById(id)
+		).rows[0];
+	},
 	create: async (payload) => {
 		const { nombre } = payload;
 		if (!nombre) throw new Error('nombre es requerido');

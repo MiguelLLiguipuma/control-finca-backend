@@ -1,3 +1,5 @@
+import { logger } from '../utils/logger.js';
+
 function normalizeRole(role) {
 	const raw = String(role || '').trim().toUpperCase();
 	if (!raw) return '';
@@ -13,9 +15,16 @@ export function autorizarRoles(...allowedRoles) {
 	return (req, res, next) => {
 		const role = normalizeRole(req.user?.rol);
 		if (!role || !normalizedAllowed.has(role)) {
+			logger.warn('authorization_denied', {
+				request_id: req.requestId || null,
+				path: req.originalUrl,
+				method: req.method,
+				user_id: Number(req.user?.id || 0) || null,
+				user_role: role || null,
+				required_roles: Array.from(normalizedAllowed),
+			});
 			return res.status(403).json({ message: 'No tiene permisos para esta operación' });
 		}
 		return next();
 	};
 }
-

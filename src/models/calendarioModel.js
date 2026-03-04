@@ -10,10 +10,28 @@ export const CalendarioModel = {
        LEFT JOIN empresas e ON e.id = c.empresa_id
        ORDER BY c.anio DESC, c.semana`,
 		),
+	findAllByEmpresaIds: (empresaIds) =>
+		query(
+			`SELECT c.id, c.semana, c.anio, ci.color, e.nombre AS empresa, c.estado
+       FROM calendarios_enfunde c
+       LEFT JOIN cintas ci ON ci.id = c.color_id
+       LEFT JOIN empresas e ON e.id = c.empresa_id
+       WHERE c.empresa_id = ANY($1::int[])
+       ORDER BY c.anio DESC, c.semana`,
+			[empresaIds],
+		),
 
 	// 2. Buscar por ID
 	findById: (id) =>
 		query(`SELECT * FROM calendarios_enfunde WHERE id=$1`, [id]),
+	findByIdScoped: (id, empresaIds) =>
+		query(
+			`SELECT *
+       FROM calendarios_enfunde
+       WHERE id = $1
+         AND empresa_id = ANY($2::int[])`,
+			[id, empresaIds],
+		),
 
 	// 3. Validar duplicados específicos
 	findBySemanaAnioEmpresa: (semana, anio, empresa_id) =>
@@ -56,5 +74,12 @@ export const CalendarioModel = {
 
 	// 8. Resumen anual
 	getResumen: () => query(`SELECT * FROM vista_resumen_calendarios`),
+	getResumenByEmpresaIds: (empresaIds) =>
+		query(
+			`SELECT *
+       FROM vista_resumen_calendarios
+       WHERE empresa_id = ANY($1::int[])`,
+			[empresaIds],
+		),
 	obtenerResumenAnual: () => query(`SELECT * FROM vista_resumen_calendarios`),
 };

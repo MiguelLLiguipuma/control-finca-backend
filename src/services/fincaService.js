@@ -1,5 +1,6 @@
 import { FincaModel } from '../models/fincaModel.js';
 import { EmpresaModel } from '../models/empresaModel.js';
+import { resolveEmpresaScope } from '../utils/accessScope.js';
 
 function normalizeRole(role) {
 	const raw = String(role || '').trim().toUpperCase();
@@ -12,12 +13,32 @@ export const FincaService = {
 	getAll: async (ctx = {}) => {
 		const role = normalizeRole(ctx?.rol);
 		const userId = Number(ctx?.userId || 0);
+		const empresaScope = await resolveEmpresaScope({
+			rol: ctx?.rol,
+			userId,
+		});
 		if (role === 'OPERADOR' && userId > 0) {
+			if (empresaScope.enforce && !empresaScope.allowedEmpresaIds.length) return [];
 			return (await FincaModel.findByUsuarioId(userId)).rows;
+		}
+		if (empresaScope.enforce) {
+			if (!empresaScope.allowedEmpresaIds.length) return [];
+			return (await FincaModel.findAllByEmpresaIds(empresaScope.allowedEmpresaIds)).rows;
 		}
 		return (await FincaModel.findAll()).rows;
 	},
-	getById: async (id) => (await FincaModel.findById(id)).rows[0],
+	getById: async (id, ctx = {}) => {
+		const userId = Number(ctx?.userId || 0);
+		const empresaScope = await resolveEmpresaScope({
+			rol: ctx?.rol,
+			userId,
+		});
+		return (
+			empresaScope.enforce
+				? await FincaModel.findByIdScoped(id, empresaScope.allowedEmpresaIds)
+				: await FincaModel.findById(id)
+		).rows[0];
+	},
 	create: async (payload) => {
 		const { nombre, empresa_id } = payload;
 		if (!nombre) throw new Error('nombre es requerido');

@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { runWithRequestScope } from '../utils/requestScope.js';
 
 export function requestContext(req, res, next) {
 	const requestId = req.headers['x-request-id']
@@ -7,5 +8,5 @@ export function requestContext(req, res, next) {
 
 	req.requestId = requestId;
 	res.setHeader('x-request-id', requestId);
-	next();
+	runWithRequestScope({ requestId }, () => next());
 }

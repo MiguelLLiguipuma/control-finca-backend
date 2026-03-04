@@ -22,8 +22,9 @@ function buildTokenAndUser(user) {
 		throw new Error('JWT_SECRET no definido en entorno');
 	}
 	const tokenVersion = Number(user.token_version || 1);
+	const empresaId = Number(user.empresa_id || 0) || null;
 	const token = jwt.sign(
-		{ id: user.id, rol: user.rol, tv: tokenVersion },
+		{ id: user.id, rol: user.rol, tv: tokenVersion, eid: empresaId },
 		process.env.JWT_SECRET,
 		{ expiresIn: '12h' },
 	);
@@ -34,6 +35,7 @@ function buildTokenAndUser(user) {
 			id: user.id,
 			nombre: user.nombre,
 			rol: user.rol,
+			empresa_id: empresaId,
 		},
 	};
 }
@@ -66,7 +68,7 @@ export const login = async (req, res) => {
 
 	try {
 		const sql = `
-      SELECT u.id, u.nombre, u.email, u.password, COALESCE(u.token_version, 1) AS token_version, r.nombre as rol
+      SELECT u.id, u.nombre, u.email, u.password, u.empresa_id, COALESCE(u.token_version, 1) AS token_version, r.nombre as rol
       FROM usuarios u
       JOIN usuarios_roles ur ON u.id = ur.usuario_id
       JOIN roles r ON ur.rol_id = r.id
@@ -130,7 +132,7 @@ export const register = async (req, res) => {
 		const nuevo = await query(
 			`INSERT INTO usuarios (nombre, email, password, activo)
        VALUES ($1, $2, $3, true)
-       RETURNING id, nombre, email, activo`,
+       RETURNING id, nombre, email, empresa_id, activo`,
 			[nombre, email, hashPassword(password)],
 		);
 
@@ -194,7 +196,7 @@ export const googleLogin = async (req, res) => {
 		}
 
 		let userRes = await query(
-			`SELECT u.id, u.nombre, u.email, COALESCE(u.token_version, 1) AS token_version, r.nombre AS rol,
+			`SELECT u.id, u.nombre, u.email, u.empresa_id, COALESCE(u.token_version, 1) AS token_version, r.nombre AS rol,
               u.provider_sub, u.auth_provider, u.activo
        FROM usuarios u
        JOIN usuarios_roles ur ON ur.usuario_id = u.id
@@ -256,7 +258,7 @@ export const googleLogin = async (req, res) => {
 		}
 
 		userRes = await query(
-			`SELECT u.id, u.nombre, u.email, COALESCE(u.token_version, 1) AS token_version, r.nombre AS rol
+			`SELECT u.id, u.nombre, u.email, u.empresa_id, COALESCE(u.token_version, 1) AS token_version, r.nombre AS rol
        FROM usuarios u
        JOIN usuarios_roles ur ON ur.usuario_id = u.id
        JOIN roles r ON r.id = ur.rol_id

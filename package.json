@@ -9,6 +9,7 @@
     "start": "node server.js",
     "migrate": "node scripts/migrate.js",
     "test": "node --test",
+    "test:tenant:e2e": "node --test test/multitenant.e2e.test.js",
     "lint": "node scripts/lint.js",
     "prestart": "npm run migrate"
   },

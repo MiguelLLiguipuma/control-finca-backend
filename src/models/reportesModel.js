@@ -428,7 +428,7 @@ export const ReportesModel = {
 		return rows;
 	},
 
-	async obtenerAlertas({ fincaId, dias, rechazoMinPct }) {
+	async obtenerAlertas({ fincaIds, dias, rechazoMinPct }) {
 		const filtrosVoucher = [];
 		const filtrosRechazo = ['rc.fecha >= CURRENT_DATE - ($1::int)'];
 		const filtrosSinCosecha = [];
@@ -438,25 +438,25 @@ export const ReportesModel = {
 		const paramsSinCosecha = [];
 		const paramsSanidad = [];
 
-		if (fincaId) {
-			paramsVoucher.push(fincaId);
+		if (Array.isArray(fincaIds) && fincaIds.length) {
+			paramsVoucher.push(fincaIds);
 			filtrosVoucher.push(
 				`EXISTS (
 					SELECT 1
 					FROM embarque_detalles ed
 					WHERE ed.embarque_id = e.id
-					  AND ed.finca_id = $${paramsVoucher.length}
+					  AND ed.finca_id = ANY($${paramsVoucher.length}::int[])
 				)`,
 			);
 
-			paramsRechazo.push(fincaId);
-			filtrosRechazo.push(`rc.finca_id = $${paramsRechazo.length}`);
+			paramsRechazo.push(fincaIds);
+			filtrosRechazo.push(`rc.finca_id = ANY($${paramsRechazo.length}::int[])`);
 
-			paramsSinCosecha.push(fincaId);
-			filtrosSinCosecha.push(`f.id = $${paramsSinCosecha.length}`);
+			paramsSinCosecha.push(fincaIds);
+			filtrosSinCosecha.push(`f.id = ANY($${paramsSinCosecha.length}::int[])`);
 
-			paramsSanidad.push(fincaId);
-			filtrosSanidad.push(`f.id = $${paramsSanidad.length}`);
+			paramsSanidad.push(fincaIds);
+			filtrosSanidad.push(`f.id = ANY($${paramsSanidad.length}::int[])`);
 		}
 
 		const vouchersSql = `
@@ -586,13 +586,13 @@ export const ReportesModel = {
 		return rows[0];
 	},
 
-	async obtenerFumigaciones({ fincaId, limit = 30 }) {
+	async obtenerFumigaciones({ fincaIds, limit = 30 }) {
 		const params = [];
 		const where = [];
 
-		if (fincaId) {
-			params.push(fincaId);
-			where.push(`fs.finca_id = $${params.length}`);
+		if (Array.isArray(fincaIds) && fincaIds.length) {
+			params.push(fincaIds);
+			where.push(`fs.finca_id = ANY($${params.length}::int[])`);
 		}
 
 		const safeLimit = Math.min(Math.max(Number(limit) || 30, 1), 200);
@@ -620,7 +620,7 @@ export const ReportesModel = {
 		return rows;
 	},
 
-	async obtenerAuditoria({ fechaDesde, fechaHasta, accion, usuarioId, fincaId, limit }) {
+	async obtenerAuditoria({ fechaDesde, fechaHasta, accion, usuarioId, fincaIds, limit }) {
 		const params = [];
 		const where = [];
 
@@ -640,13 +640,13 @@ export const ReportesModel = {
 			params.push(usuarioId);
 			where.push(`a.usuario_id = $${params.length}`);
 		}
-		if (fincaId) {
-			params.push(fincaId);
+		if (Array.isArray(fincaIds) && fincaIds.length) {
+			params.push(fincaIds);
 			where.push(`EXISTS (
 				SELECT 1
 				FROM embarque_detalles ed
 				WHERE ed.embarque_id = a.embarque_id
-				  AND ed.finca_id = $${params.length}
+				  AND ed.finca_id = ANY($${params.length}::int[])
 			)`);
 		}
 

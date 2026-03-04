@@ -3,18 +3,26 @@ import { CalendarioService } from '../services/calendarioService.js';
 export const CalendarioController = {
 	async list(req, res) {
 		try {
-			res.json(await CalendarioService.getAll());
+			res.json(
+				await CalendarioService.getAll({
+					userId: req.user?.id,
+					rol: req.user?.rol,
+				}),
+			);
 		} catch (e) {
-			res.status(500).json({ error: e.message });
+			res.status(Number(e?.status) || 500).json({ error: e.message });
 		}
 	},
 
 	async get(req, res) {
 		try {
-			const item = await CalendarioService.getById(req.params.id);
+			const item = await CalendarioService.getById(req.params.id, {
+				userId: req.user?.id,
+				rol: req.user?.rol,
+			});
 			res.json(item);
 		} catch (e) {
-			res.status(404).json({ error: e.message });
+			res.status(Number(e?.status) || 404).json({ error: e.message });
 		}
 	},
 
@@ -30,37 +38,51 @@ export const CalendarioController = {
 				anio: req.body.anio || req.body.año,
 			};
 
-			const result = await CalendarioService.create(payload);
+			const result = await CalendarioService.create(payload, {
+				userId: req.user?.id,
+				rol: req.user?.rol,
+			});
 			res.status(201).json(result);
 		} catch (e) {
 			console.error('Error en Controller Create:', e.message);
-			res.status(400).json({ error: e.message });
+			res.status(Number(e?.status) || 400).json({ error: e.message });
 		}
 	},
 
 	async update(req, res) {
 		try {
-			const result = await CalendarioService.update(req.params.id, req.body);
+			const result = await CalendarioService.update(req.params.id, req.body, {
+				userId: req.user?.id,
+				rol: req.user?.rol,
+			});
 			res.json(result);
 		} catch (e) {
-			res.status(400).json({ error: e.message });
+			res.status(Number(e?.status) || 400).json({ error: e.message });
 		}
 	},
 
 	async remove(req, res) {
 		try {
-			res.json(await CalendarioService.remove(req.params.id));
+			res.json(
+				await CalendarioService.remove(req.params.id, {
+					userId: req.user?.id,
+					rol: req.user?.rol,
+				}),
+			);
 		} catch (e) {
-			res.status(400).json({ error: e.message });
+			res.status(Number(e?.status) || 400).json({ error: e.message });
 		}
 	},
 	// ... dentro del objeto CalendarioController
 	async getResumen(req, res) {
 		try {
-			const data = await CalendarioService.getResumenAnual();
+			const data = await CalendarioService.getResumenAnual({
+				userId: req.user?.id,
+				rol: req.user?.rol,
+			});
 			res.json(data);
 		} catch (e) {
-			res.status(500).json({ error: e.message });
+			res.status(Number(e?.status) || 500).json({ error: e.message });
 		}
 	},
 };

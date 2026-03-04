@@ -2,18 +2,41 @@ import { RegistroModel } from '../models/registroModel.js';
 import { FincaModel } from '../models/fincaModel.js';
 import { UsuarioModel } from '../models/usuarioModel.js';
 import { CalendarioModel } from '../models/calendarioModel.js';
+import { assertFincaInScope, resolveFincaScope } from '../utils/accessScope.js';
 
 export const RegistroService = {
-	getAll: async () => (await RegistroModel.findAll()).rows,
+	getAll: async (ctx = {}) => {
+		const scope = await resolveFincaScope({
+			rol: ctx?.rol,
+			userId: Number(ctx?.userId || 0),
+		});
 
-	getById: async (id) => {
-		const res = await RegistroModel.findById(id);
+		if (!scope.enforce) {
+			return (await RegistroModel.findAll()).rows;
+		}
+
+		if (!scope.allowedFincaIds.length) return [];
+		return (await RegistroModel.findAllByFincaIds(scope.allowedFincaIds)).rows;
+	},
+
+	getById: async (id, ctx = {}) => {
+		const scope = await resolveFincaScope({
+			rol: ctx?.rol,
+			userId: Number(ctx?.userId || 0),
+		});
+		const res = scope.enforce
+			? await RegistroModel.findByIdScoped(id, scope.allowedFincaIds)
+			: await RegistroModel.findById(id);
 		return res.rows[0];
 	},
 
-	create: async (payload) => {
+	create: async (payload, ctx = {}) => {
 		const { finca_id, usuario_id, operario_id, calendario_id, cantidad_fundas } =
 			payload;
+		const scope = await resolveFincaScope({
+			rol: ctx?.rol,
+			userId: Number(ctx?.userId || 0),
+		});
 
 		// Validación de campos obligatorios
 		if (
@@ -27,6 +50,7 @@ export const RegistroService = {
 				'finca_id, usuario_id, operario_id, calendario_id y cantidad_fundas son requeridos',
 			);
 		}
+		assertFincaInScope(finca_id, scope);
 
 		// Validaciones de existencia en cascada
 		const [finca, usuario, operario, cal] = await Promise.all([
@@ -46,9 +70,19 @@ export const RegistroService = {
 		return (await RegistroModel.create(payload)).rows[0];
 	},
 
-	update: async (id, payload) => {
-		const cur = await RegistroModel.findById(id);
+	update: async (id, payload, ctx = {}) => {
+		const scope = await resolveFincaScope({
+			rol: ctx?.rol,
+			userId: Number(ctx?.userId || 0),
+		});
+		const cur = scope.enforce
+			? await RegistroModel.findByIdScoped(id, scope.allowedFincaIds)
+			: await RegistroModel.findById(id);
 		if (!cur.rows.length) throw new Error('Registro no encontrado');
+
+		if (payload.finca_id) {
+			assertFincaInScope(payload.finca_id, scope);
+		}
 
 		// Validaciones opcionales si se están actualizando IDs
 		if (payload.finca_id) {
@@ -71,12 +105,29 @@ export const RegistroService = {
 		return (await RegistroModel.update(id, payload)).rows[0];
 	},
 
-	remove: async (id) => {
+	remove: async (id, ctx = {}) => {
+		const scope = await resolveFincaScope({
+			rol: ctx?.rol,
+			userId: Number(ctx?.userId || 0),
+		});
+
+		if (scope.enforce) {
+			const del = await RegistroModel.removeScoped(id, scope.allowedFincaIds);
+			if (!del.rows.length) throw new Error('Registro no encontrado');
+			return { ok: true };
+		}
+
 		await RegistroModel.remove(id);
 		return { ok: true };
 	},
 	// Dentro de RegistroService.js
-	async getByFinca(fincaId, anio) {
+	async getByFinca(fincaId, anio, ctx = {}) {
+		const scope = await resolveFincaScope({
+			rol: ctx?.rol,
+			userId: Number(ctx?.userId || 0),
+		});
+		assertFincaInScope(fincaId, scope);
+
 		// Asegúrate de que RegistroModel tenga obtenerPorFinca
 		return await RegistroModel.obtenerPorFinca(fincaId, anio);
 	},

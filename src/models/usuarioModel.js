@@ -6,6 +6,7 @@ export const UsuarioModel = {
 			`SELECT u.id,
               u.nombre,
               u.email,
+              u.empresa_id,
               u.activo,
               u.creado_en,
               r.id AS rol_id,
@@ -20,6 +21,7 @@ export const UsuarioModel = {
 			`SELECT u.id,
               u.nombre,
               u.email,
+              u.empresa_id,
               u.activo,
               u.creado_en,
               r.id AS rol_id,
@@ -44,21 +46,29 @@ export const UsuarioModel = {
        ORDER BY id
        LIMIT 1`,
 		),
-	create: ({ nombre, email, password, activo = true }) =>
+	create: ({ nombre, email, password, empresa_id = null, activo = true }) =>
 		query(
-			'INSERT INTO usuarios (nombre, email, password, activo) VALUES ($1,$2,$3,$4) RETURNING id, nombre, email, activo, creado_en',
-			[nombre, email, password, activo],
+			'INSERT INTO usuarios (nombre, email, password, empresa_id, activo) VALUES ($1,$2,$3,$4,$5) RETURNING id, nombre, email, empresa_id, activo, creado_en',
+			[nombre, email, password, empresa_id, activo],
 		),
-	update: (id, { nombre, email, password, activo }) =>
+	update: (id, { nombre, email, password, empresa_id, activo }) =>
 		query(
 			`UPDATE usuarios SET 
          nombre=COALESCE($1,nombre),
          email=COALESCE($2,email),
          password=COALESCE($3,password),
-         activo=COALESCE($4,activo)
-       WHERE id=$5
-       RETURNING id, nombre, email, activo, creado_en`,
-			[nombre ?? null, email ?? null, password ?? null, activo ?? null, id],
+         empresa_id=COALESCE($4,empresa_id),
+         activo=COALESCE($5,activo)
+       WHERE id=$6
+       RETURNING id, nombre, email, empresa_id, activo, creado_en`,
+			[
+				nombre ?? null,
+				email ?? null,
+				password ?? null,
+				empresa_id ?? null,
+				activo ?? null,
+				id,
+			],
 		),
 	replaceUsuarioRol: async (usuarioId, rolId) => {
 		await query('DELETE FROM usuarios_roles WHERE usuario_id = $1', [usuarioId]);

@@ -2,6 +2,10 @@ import { pool } from '../db/db.js';
 import { CalendarioModel } from '../models/calendarioModel.js';
 import { CintaModel } from '../models/cintaModel.js';
 import { EmpresaModel } from '../models/empresaModel.js';
+import {
+	assertEmpresaInScope,
+	resolveEmpresaScope,
+} from '../utils/accessScope.js';
 
 function calcularSemanasISO(year) {
 	const p =
@@ -18,15 +22,33 @@ function normalizarEstado(estado) {
 }
 
 export const CalendarioService = {
-	getAll: async () => (await CalendarioModel.findAll()).rows,
+	getAll: async (ctx = {}) => {
+		const scope = await resolveEmpresaScope({
+			rol: ctx?.rol,
+			userId: Number(ctx?.userId || 0),
+		});
+		if (!scope.enforce) return (await CalendarioModel.findAll()).rows;
+		if (!scope.allowedEmpresaIds.length) return [];
+		return (await CalendarioModel.findAllByEmpresaIds(scope.allowedEmpresaIds)).rows;
+	},
 
-	getById: async (id) => {
-		const res = await CalendarioModel.findById(id);
+	getById: async (id, ctx = {}) => {
+		const scope = await resolveEmpresaScope({
+			rol: ctx?.rol,
+			userId: Number(ctx?.userId || 0),
+		});
+		const res = scope.enforce
+			? await CalendarioModel.findByIdScoped(id, scope.allowedEmpresaIds)
+			: await CalendarioModel.findById(id);
 		if (!res.rows.length) throw new Error('Calendario no encontrado');
 		return res.rows[0];
 	},
 
-	create: async (payload) => {
+	create: async (payload, ctx = {}) => {
+		const scope = await resolveEmpresaScope({
+			rol: ctx?.rol,
+			userId: Number(ctx?.userId || 0),
+		});
 		if (payload.detalles && Array.isArray(payload.detalles)) {
 			const empresa_id = Number(payload.empresa_id);
 			const anio = Number(payload.anio);
@@ -35,6 +57,7 @@ export const CalendarioService = {
 			if (!empresa_id || !anio) {
 				throw new Error('Faltan datos (empresa_id o anio)');
 			}
+			assertEmpresaInScope(empresa_id, scope);
 
 			if (!detalles.length) {
 				throw new Error('El calendario debe contener al menos una semana');
@@ -110,6 +133,7 @@ export const CalendarioService = {
 		if (!semana || !anio || !color_id || !empresa_id) {
 			throw new Error('Datos incompletos para registro individual');
 		}
+		assertEmpresaInScope(empresa_id, scope);
 
 		const cinta = await CintaModel.findById(color_id);
 		if (!cinta.rows.length) throw new Error('Color (Cinta) no existe');
@@ -135,22 +159,45 @@ export const CalendarioService = {
 		).rows[0];
 	},
 
-	update: async (id, payload) => {
-		const cur = await CalendarioModel.findById(id);
+	update: async (id, payload, ctx = {}) => {
+		const scope = await resolveEmpresaScope({
+			rol: ctx?.rol,
+			userId: Number(ctx?.userId || 0),
+		});
+		const cur = scope.enforce
+			? await CalendarioModel.findByIdScoped(id, scope.allowedEmpresaIds)
+			: await CalendarioModel.findById(id);
 		if (!cur.rows.length) throw new Error('Calendario no encontrado');
+		if (payload.empresa_id) {
+			assertEmpresaInScope(payload.empresa_id, scope);
+		}
 		if (payload.estado) {
 			payload.estado = normalizarEstado(payload.estado);
 		}
 		return (await CalendarioModel.update(id, payload)).rows[0];
 	},
 
-	remove: async (id) => {
+	remove: async (id, ctx = {}) => {
+		const scope = await resolveEmpresaScope({
+			rol: ctx?.rol,
+			userId: Number(ctx?.userId || 0),
+		});
+		const cur = scope.enforce
+			? await CalendarioModel.findByIdScoped(id, scope.allowedEmpresaIds)
+			: await CalendarioModel.findById(id);
+		if (!cur.rows.length) throw new Error('Calendario no encontrado');
 		await CalendarioModel.remove(id);
 		return { ok: true };
 	},
 
-	getResumenAnual: async () => {
-		const res = await CalendarioModel.getResumen();
+	getResumenAnual: async (ctx = {}) => {
+		const scope = await resolveEmpresaScope({
+			rol: ctx?.rol,
+			userId: Number(ctx?.userId || 0),
+		});
+		const res = scope.enforce
+			? await CalendarioModel.getResumenByEmpresaIds(scope.allowedEmpresaIds)
+			: await CalendarioModel.getResumen();
 		return res.rows;
 	},
 };

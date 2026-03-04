@@ -1,5 +1,13 @@
 import jwt from 'jsonwebtoken';
 import { query } from '../db/db.js';
+import { setRequestAuthScope } from '../utils/requestScope.js';
+
+function normalizeRole(role) {
+	const raw = String(role || '').trim().toUpperCase();
+	if (raw === 'TRABAJADOR' || raw === 'OPERARIO') return 'OPERADOR';
+	if (raw === 'ADMINISTRADOR' || raw === 'GERENTE') return 'ADMIN';
+	return raw;
+}
 
 export const verificarSesion = async (req, res, next) => {
 	const authHeader = req.headers.authorization;
@@ -26,7 +34,7 @@ export const verificarSesion = async (req, res, next) => {
 		}
 
 		const userRes = await query(
-			`SELECT id, activo, COALESCE(token_version, 1) AS token_version
+			`SELECT id, activo, empresa_id, COALESCE(token_version, 1) AS token_version
        FROM usuarios
        WHERE id = $1
        LIMIT 1`,
@@ -45,8 +53,28 @@ export const verificarSesion = async (req, res, next) => {
 		req.user = {
 			id: userId,
 			rol: decoded?.rol,
+			empresa_id: Number(decoded?.eid || userRes.rows[0].empresa_id || 0) || null,
 			tv: tokenVersion,
 		};
+		const normalizedRole = normalizeRole(decoded?.rol);
+		let allowedFincaIds = [];
+		if (normalizedRole === 'OPERADOR' || normalizedRole === 'SUPERVISOR') {
+			const fincasRes = await query(
+				`SELECT finca_id
+       FROM usuarios_fincas
+       WHERE usuario_id = $1`,
+				[userId],
+			);
+			allowedFincaIds = fincasRes.rows
+				.map((r) => Number(r.finca_id))
+				.filter((n) => Number.isInteger(n) && n > 0);
+		}
+		setRequestAuthScope({
+			userId,
+			empresaId: req.user.empresa_id,
+			role: decoded?.rol,
+			allowedFincaIds,
+		});
 
 		return next();
 	} catch (error) {

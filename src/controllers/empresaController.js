@@ -1,21 +1,29 @@
 import { EmpresaService } from '../services/empresaService.js';
 
 export const EmpresaController = {
-	async list(_req, res) {
+	async list(req, res) {
 		try {
-			res.json(await EmpresaService.getAll());
+			res.json(
+				await EmpresaService.getAll({
+					userId: req.user?.id,
+					rol: req.user?.rol,
+				}),
+			);
 		} catch (e) {
-			res.status(500).json({ error: e.message });
+			res.status(Number(e?.status) || 500).json({ error: e.message });
 		}
 	},
 	async get(req, res) {
 		try {
-			const item = await EmpresaService.getById(req.params.id);
+			const item = await EmpresaService.getById(req.params.id, {
+				userId: req.user?.id,
+				rol: req.user?.rol,
+			});
 			if (!item)
 				return res.status(404).json({ error: 'Empresa no encontrada' });
 			res.json(item);
 		} catch (e) {
-			res.status(500).json({ error: e.message });
+			res.status(Number(e?.status) || 500).json({ error: e.message });
 		}
 	},
 	async create(req, res) {

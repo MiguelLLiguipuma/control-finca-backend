@@ -18,6 +18,15 @@ export const FincaModel = {
        ORDER BY f.id`,
 			[usuarioId],
 		),
+	findAllByEmpresaIds: (empresaIds) =>
+		query(
+			`SELECT f.*, e.nombre AS empresa_nombre
+       FROM fincas f
+       LEFT JOIN empresas e ON e.id = f.empresa_id
+       WHERE f.empresa_id = ANY($1::int[])
+       ORDER BY f.id`,
+			[empresaIds],
+		),
 
 	findById: (id) =>
 		query(
@@ -26,6 +35,15 @@ export const FincaModel = {
        LEFT JOIN empresas e ON e.id = f.empresa_id
        WHERE f.id=$1`,
 			[id],
+		),
+	findByIdScoped: (id, empresaIds) =>
+		query(
+			`SELECT f.*, e.nombre AS empresa_nombre
+       FROM fincas f
+       LEFT JOIN empresas e ON e.id = f.empresa_id
+       WHERE f.id = $1
+         AND f.empresa_id = ANY($2::int[])`,
+			[id, empresaIds],
 		),
 
 	create: ({ nombre, ubicacion, empresa_id, latitud, longitud }) =>

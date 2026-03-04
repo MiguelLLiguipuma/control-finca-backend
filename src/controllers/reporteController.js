@@ -1,5 +1,9 @@
 import { ReportesService } from '../services/reportesService.js';
-import { query } from '../db/db.js';
+import {
+	applyFincaScopeToRequestedIds,
+	assertFincaInScope,
+	resolveFincaScope,
+} from '../utils/accessScope.js';
 
 function parseFincaId(params) {
 	const fincaId = Number(params.fincaId);
@@ -26,35 +30,12 @@ function manejarError(res, err, fallback = 500) {
 	return res.status(status).json({ error: err.message || 'Error interno' });
 }
 
-function normalizeRole(role) {
-	const raw = String(role || '').trim().toUpperCase();
-	if (raw === 'TRABAJADOR' || raw === 'OPERARIO') return 'OPERADOR';
-	if (raw === 'ADMINISTRADOR' || raw === 'GERENTE') return 'ADMIN';
-	return raw;
-}
-
-async function getFincasPermitidasByUser(usuarioId) {
-	const { rows } = await query(
-		`SELECT finca_id
-     FROM usuarios_fincas
-     WHERE usuario_id = $1`,
-		[usuarioId],
-	);
-	return rows.map((r) => Number(r.finca_id));
-}
-
 async function asegurarAccesoFinca(req, fincaId) {
-	const role = normalizeRole(req.user?.rol);
-	if (role !== 'OPERADOR') return;
-	const userId = Number(req.user?.id || 0);
-	const permitidas = await getFincasPermitidasByUser(userId);
-	if (!permitidas.includes(Number(fincaId))) {
-		const err = new Error(
-			'No tiene permisos para consultar datos de esta finca',
-		);
-		err.status = 403;
-		throw err;
-	}
+	const scope = await resolveFincaScope({
+		rol: req.user?.rol,
+		userId: Number(req.user?.id || 0),
+	});
+	assertFincaInScope(Number(fincaId), scope);
 }
 
 function parseDateISO(raw) {
@@ -74,7 +55,8 @@ function parseFincaIdFromBody(body) {
 }
 
 function esOperador(req) {
-	return normalizeRole(req.user?.rol) === 'OPERADOR';
+	const raw = String(req.user?.rol || '').trim().toUpperCase();
+	return raw === 'OPERADOR' || raw === 'OPERARIO' || raw === 'TRABAJADOR';
 }
 
 function scopeReportes(req) {
@@ -218,31 +200,22 @@ export const ReportesController = {
 
 	async alertas(req, res) {
 		try {
-			const fincaId = req.query?.finca_id
-				? Math.max(0, Number(req.query.finca_id) || 0)
-				: null;
-			const role = normalizeRole(req.user?.rol);
-			let fincaFilter = fincaId || null;
-			if (role === 'OPERADOR') {
-				const permitidas = await getFincasPermitidasByUser(
-					Number(req.user?.id || 0),
-				);
-				if (!permitidas.length) return res.json([]);
-				if (fincaFilter && !permitidas.includes(Number(fincaFilter))) {
-					return res
-						.status(403)
-						.json({ error: 'No tiene permisos para consultar alertas de esta finca' });
-				}
-				// Si no envía finca, acotamos a la primera permitida para evitar visión global.
-				fincaFilter = fincaFilter || permitidas[0];
-			}
+			const scope = await resolveFincaScope({
+				rol: req.user?.rol,
+				userId: Number(req.user?.id || 0),
+			});
+			const requestedFincaIds = req.query?.finca_id
+				? [Math.max(0, Number(req.query.finca_id) || 0)]
+				: [];
+			const fincaIds = applyFincaScopeToRequestedIds(requestedFincaIds, scope);
+			if (scope.enforce && !fincaIds.length) return res.json([]);
 			const dias = Math.min(Math.max(Number(req.query?.dias) || 7, 1), 30);
 			const rechazoMinPct = Math.min(
 				Math.max(Number(req.query?.rechazo_min_pct) || 20, 1),
 				80,
 			);
 			const data = await ReportesService.getAlertas({
-				fincaId: fincaFilter,
+				fincaIds: fincaIds.length ? fincaIds : null,
 				dias,
 				rechazoMinPct,
 			});
@@ -281,17 +254,19 @@ export const ReportesController = {
 
 	async fumigaciones(req, res) {
 		try {
-			const fincaId = req.query?.finca_id
-				? Math.max(0, Number(req.query.finca_id) || 0)
-				: null;
-
-			if (fincaId) {
-				await asegurarAccesoFinca(req, fincaId);
-			}
+			const scope = await resolveFincaScope({
+				rol: req.user?.rol,
+				userId: Number(req.user?.id || 0),
+			});
+			const requestedFincaIds = req.query?.finca_id
+				? [Math.max(0, Number(req.query.finca_id) || 0)]
+				: [];
+			const fincaIds = applyFincaScopeToRequestedIds(requestedFincaIds, scope);
+			if (scope.enforce && !fincaIds.length) return res.json([]);
 
 			const limit = Math.min(Math.max(Number(req.query?.limit) || 30, 1), 200);
 			const data = await ReportesService.getFumigaciones({
-				fincaId: fincaId || null,
+				fincaIds: fincaIds.length ? fincaIds : null,
 				limit,
 			});
 			res.json(data);
@@ -308,9 +283,15 @@ export const ReportesController = {
 			const usuarioId = req.query?.usuario_id
 				? Math.max(0, Number(req.query.usuario_id) || 0)
 				: null;
-			const fincaId = req.query?.finca_id
-				? Math.max(0, Number(req.query.finca_id) || 0)
-				: null;
+			const scope = await resolveFincaScope({
+				rol: req.user?.rol,
+				userId: Number(req.user?.id || 0),
+			});
+			const requestedFincaIds = req.query?.finca_id
+				? [Math.max(0, Number(req.query.finca_id) || 0)]
+				: [];
+			const fincaIds = applyFincaScopeToRequestedIds(requestedFincaIds, scope);
+			if (scope.enforce && !fincaIds.length) return res.json([]);
 			const limit = Math.min(Math.max(Number(req.query?.limit) || 200, 1), 1000);
 
 			const data = await ReportesService.getAuditoria({
@@ -318,7 +299,7 @@ export const ReportesController = {
 				fechaHasta,
 				accion,
 				usuarioId: usuarioId || null,
-				fincaId: fincaId || null,
+				fincaIds: fincaIds.length ? fincaIds : null,
 				limit,
 			});
 			res.json(data);

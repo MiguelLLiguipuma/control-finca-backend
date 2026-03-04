@@ -17,6 +17,23 @@ export const RegistroModel = {
        ORDER BY r.fecha DESC, r.id DESC`,
 		),
 
+	findAllByFincaIds: (fincaIds) =>
+		query(
+			`SELECT r.id, r.fecha, r.cantidad_fundas, r.observaciones,
+              f.nombre AS finca, u.nombre AS usuario, o.nombre AS operario,
+              c.semana, c.anio, ci.color, e.nombre AS empresa
+       FROM registro_enfunde r
+       LEFT JOIN fincas f ON f.id = r.finca_id
+       LEFT JOIN usuarios u ON u.id = r.usuario_id
+       LEFT JOIN usuarios o ON o.id = r.operario_id
+       LEFT JOIN calendarios_enfunde c ON c.id = r.calendario_id
+       LEFT JOIN cintas ci ON ci.id = c.color_id
+       LEFT JOIN empresas e ON e.id = c.empresa_id
+       WHERE r.finca_id = ANY($1::int[])
+       ORDER BY r.fecha DESC, r.id DESC`,
+			[fincaIds],
+		),
+
 	// 2. Buscar un registro por ID
 	findById: (id) =>
 		query(
@@ -32,6 +49,23 @@ export const RegistroModel = {
        LEFT JOIN empresas e ON e.id = c.empresa_id
        WHERE r.id=$1`,
 			[id],
+		),
+
+	findByIdScoped: (id, fincaIds) =>
+		query(
+			`SELECT r.*, f.nombre AS finca, u.nombre AS usuario,
+              o.nombre AS operario,
+              c.semana, c.anio, ci.color, e.nombre AS empresa
+       FROM registro_enfunde r
+       LEFT JOIN fincas f ON f.id = r.finca_id
+       LEFT JOIN usuarios u ON u.id = r.usuario_id
+       LEFT JOIN usuarios o ON o.id = r.operario_id
+       LEFT JOIN calendarios_enfunde c ON c.id = r.calendario_id
+       LEFT JOIN cintas ci ON ci.id = c.color_id
+       LEFT JOIN empresas e ON e.id = c.empresa_id
+       WHERE r.id=$1
+         AND r.finca_id = ANY($2::int[])`,
+			[id, fincaIds],
 		),
 
 	// 3. Crear registro
@@ -96,6 +130,14 @@ export const RegistroModel = {
 
 	// 5. Eliminar registro
 	remove: (id) => query('DELETE FROM registro_enfunde WHERE id=$1', [id]),
+	removeScoped: (id, fincaIds) =>
+		query(
+			`DELETE FROM registro_enfunde
+       WHERE id = $1
+         AND finca_id = ANY($2::int[])
+       RETURNING id`,
+			[id, fincaIds],
+		),
 
 	// Reemplaza tu función actual por esta:
 	async obtenerPorFinca(fincaId, anio) {
