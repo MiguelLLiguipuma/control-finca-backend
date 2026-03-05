@@ -20,3 +20,20 @@ export const obtenerPrediccionCosecha = async (req, res) => {
 		return manejarError(res, error);
 	}
 };
+
+export const obtenerProyeccionEmbarqueComparativa = async (req, res) => {
+	try {
+		const result = await PrediccionAvanzadaService.proyeccionEmbarqueComparativa({
+			fincaId: req.params.finca_id,
+			user: req.user,
+			query: req.query,
+		});
+		return res.json(result);
+	} catch (error) {
+		console.error(
+			'ERROR PROYECCION COMPARATIVA EMBARQUE:',
+			error?.message || error,
+		);
+		return manejarError(res, error);
+	}
+};

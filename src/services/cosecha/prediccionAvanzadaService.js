@@ -35,6 +35,121 @@ function normalizarConfig(configRow, promedioUcDiario) {
 	};
 }
 
+function getIsoWeekNow(baseDate = new Date()) {
+	const d = new Date(Date.UTC(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate()));
+	const dayNum = d.getUTCDay() || 7;
+	d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+	const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+	const weekNo = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+	return { anio: d.getUTCFullYear(), semana: weekNo };
+}
+
+function getNextIsoWeek() {
+	const now = getIsoWeekNow();
+	let anio = now.anio;
+	let semana = now.semana + 1;
+	if (semana > 53) {
+		semana = 1;
+		anio += 1;
+	}
+	return { anio, semana };
+}
+
+function round(value, decimals = 2) {
+	const n = Number(value || 0);
+	if (!Number.isFinite(n)) return 0;
+	const p = 10 ** decimals;
+	return Math.round(n * p) / p;
+}
+
+function promedio(values) {
+	if (!Array.isArray(values) || !values.length) return 0;
+	return values.reduce((acc, n) => acc + Number(n || 0), 0) / values.length;
+}
+
+function desviacion(values) {
+	if (!Array.isArray(values) || values.length < 2) return 0;
+	const avg = promedio(values);
+	const variance =
+		values.reduce((acc, n) => {
+			const d = Number(n || 0) - avg;
+			return acc + d * d;
+		}, 0) /
+		(values.length - 1);
+	return Math.sqrt(Math.max(0, variance));
+}
+
+function cv(values) {
+	const avg = promedio(values);
+	if (avg <= 0) return 1;
+	return desviacion(values) / avg;
+}
+
+function trimmedMean(values) {
+	if (!Array.isArray(values) || !values.length) return 0;
+	if (values.length < 5) return promedio(values);
+	const sorted = [...values].sort((a, b) => a - b);
+	const k = Math.floor(sorted.length * 0.1);
+	return promedio(sorted.slice(k, sorted.length - k));
+}
+
+function circularWeekDiff(a, b) {
+	const diff = Math.abs(Number(a || 0) - Number(b || 0));
+	return Math.min(diff, 53 - diff);
+}
+
+function calcEstacional(hist, semanaObjetivo) {
+	const seasonalRows = hist.filter((x) => circularWeekDiff(x.semana_iso, semanaObjetivo) <= 1);
+	const values = seasonalRows.map((x) => Number(x.total_racimos || 0));
+	const n = values.length;
+	const variability = cv(values);
+	let nivel = 'bajo';
+	if (n >= 8 && variability <= 0.2) nivel = 'alto';
+	else if (n >= 5 && variability <= 0.35) nivel = 'medio';
+	return {
+		nivel,
+		n,
+		cv: variability,
+		valor: seasonalRows.length ? promedio(values) : promedio(hist.map((x) => Number(x.total_racimos || 0))),
+	};
+}
+
+function calcReciente(hist) {
+	const recent = [...hist].slice(-8);
+	const values = recent.map((x) => Number(x.total_racimos || 0));
+	const n = values.length;
+	const variability = cv(values);
+	let nivel = 'bajo';
+	if (n >= 6 && variability <= 0.25) nivel = 'alto';
+	else if (n >= 4) nivel = 'medio';
+
+	let num = 0;
+	let den = 0;
+	for (let i = 0; i < values.length; i += 1) {
+		const w = i + 1;
+		num += values[i] * w;
+		den += w;
+	}
+	return {
+		nivel,
+		n,
+		cv: variability,
+		valor: den > 0 ? num / den : promedio(values),
+	};
+}
+
+function calcPesos(estNivel, recNivel) {
+	const wEst = estNivel === 'alto' ? 0.5 : estNivel === 'medio' ? 0.4 : 0.25;
+	const wRec = recNivel === 'alto' ? 0.3 : recNivel === 'medio' ? 0.25 : 0.15;
+	const wBase = Math.max(0.1, 1 - wEst - wRec);
+	const total = wBase + wEst + wRec;
+	return {
+		base: wBase / total,
+		estacional: wEst / total,
+		tendencia: wRec / total,
+	};
+}
+
 export const PrediccionAvanzadaService = {
 	async ejecutar({ fincaId, user, query }) {
 		const finca = cleanPositiveInt(fincaId);
@@ -86,6 +201,125 @@ export const PrediccionAvanzadaService = {
 				reason: 'recalculo_forzado',
 				algoritmo_version: ALGORITMO_VERSION,
 				ventana_historial: ventana,
+			},
+		};
+	},
+
+	async proyeccionEmbarqueComparativa({ fincaId, user, query }) {
+		const finca = cleanPositiveInt(fincaId);
+		if (!finca) throw crearError('finca_id invalido', 400);
+
+		const scope = await resolveFincaScope({
+			rol: user?.rol,
+			userId: Number(user?.id || 0),
+		});
+		assertFincaInScope(finca, scope);
+
+		const fincaRow = await PrediccionAvanzadaModel.obtenerEmpresaDeFinca(finca);
+		if (!fincaRow) throw crearError('Finca no encontrada', 404);
+		const empresaUsuario = cleanPositiveInt(user?.empresa_id);
+		if (empresaUsuario && Number(fincaRow.empresa_id || 0) !== empresaUsuario) {
+			throw crearError('No tiene permisos para consultar esta finca', 403);
+		}
+
+		const incluirBorrador =
+			String(query?.incluir_borrador || '').trim().toLowerCase() === 'true';
+		const historico = await PrediccionAvanzadaModel.obtenerHistoricoEmbarquesPorFinca({
+			fincaId: finca,
+			incluirBorrador,
+			maxRows: 4000,
+		});
+		if (!historico.length) {
+			return {
+				finca_id: finca,
+				message: 'Sin historial de embarques para calcular proyeccion',
+				comparacion: null,
+			};
+		}
+
+		const ordered = [...historico].sort((a, b) => {
+			const ak = Number(a.anio_iso || 0) * 100 + Number(a.semana_iso || 0);
+			const bk = Number(b.anio_iso || 0) * 100 + Number(b.semana_iso || 0);
+			return ak - bk;
+		});
+		const next = getNextIsoWeek();
+		const baseValues = ordered.map((x) => Number(x.total_racimos || 0));
+		const baseHistorica = trimmedMean(baseValues);
+		const est = calcEstacional(ordered, next.semana);
+		const rec = calcReciente(ordered);
+		const pesos = calcPesos(est.nivel, rec.nivel);
+
+		const rechazoReciente = (() => {
+			const recRows = ordered.slice(-8);
+			const total = recRows.reduce((acc, x) => acc + Number(x.total_racimos || 0), 0);
+			const rej = recRows.reduce((acc, x) => acc + Number(x.racimos_rechazo || 0), 0);
+			if (total <= 0) return 0;
+			return (rej / total) * 100;
+		})();
+
+		const estimadoBruto =
+			baseHistorica * pesos.base +
+			est.valor * pesos.estacional +
+			rec.valor * pesos.tendencia;
+		const estimadoNeto = estimadoBruto * (1 - rechazoReciente / 100);
+		const maeRef = desviacion(baseValues) * 0.45;
+
+		const [configRaw, promedioUcDiario, inventario, series] = await Promise.all([
+			PrediccionAvanzadaModel.obtenerConfiguracionFinca(finca),
+			PrediccionAvanzadaModel.obtenerPromedioClimaticoReciente(finca),
+			PrediccionAvanzadaModel.obtenerInventarioActual(finca),
+			PrediccionAvanzadaModel.obtenerSerieHistoricaSemanal({
+				fincaId: finca,
+				empresaId: empresaUsuario || Number(fincaRow.empresa_id || 0),
+				semanaInicioIdeal: Number(configRaw?.semana_inicio || 12),
+				semanaFinIdeal: Number(configRaw?.semana_fin || 13),
+				semanasHistoricas: 104,
+			}),
+		]);
+		const config = normalizarConfig(configRaw, promedioUcDiario);
+		const { resultado: aproxSistema } = construirPrediccionAvanzada({
+			series,
+			inventario,
+			config,
+			fincaId: finca,
+		});
+		const sistema = Number(aproxSistema?.prediccion_proximo_embarque?.racimos_estimados || 0);
+		const deltaAbs = estimadoNeto - sistema;
+		const deltaPct = sistema > 0 ? (deltaAbs / sistema) * 100 : 0;
+
+		return {
+			finca_id: finca,
+			semana_objetivo: next.semana,
+			anio_objetivo: next.anio,
+			serie: {
+				total_embarques_considerados: ordered.length,
+				desde: String(ordered[0]?.fecha_embarque || ''),
+				hasta: String(ordered[ordered.length - 1]?.fecha_embarque || ''),
+			},
+			modelo: {
+				base_historica: round(baseHistorica, 2),
+				estacional_semana: round(est.valor, 2),
+				tendencia_reciente: round(rec.valor, 2),
+				rechazo_reciente_pct: round(rechazoReciente, 2),
+				pesos: {
+					base: round(pesos.base, 3),
+					estacional: round(pesos.estacional, 3),
+					tendencia: round(pesos.tendencia, 3),
+				},
+				mae_ref: round(maeRef, 2),
+			},
+			prediccion_nueva: {
+				racimos_bruto: round(estimadoBruto, 2),
+				racimos_neto: round(estimadoNeto, 2),
+				rango_min: round(Math.max(0, estimadoNeto - maeRef), 2),
+				rango_max: round(estimadoNeto + maeRef, 2),
+			},
+			aproximado_sistema_actual: {
+				racimos: round(sistema, 2),
+			},
+			comparacion: {
+				delta_abs: round(deltaAbs, 2),
+				delta_pct: round(deltaPct, 2),
 			},
 		};
 	},

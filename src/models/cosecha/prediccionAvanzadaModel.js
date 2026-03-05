@@ -297,4 +297,29 @@ export const PrediccionAvanzadaModel = {
 			],
 		);
 	},
+
+	async obtenerHistoricoEmbarquesPorFinca({
+		fincaId,
+		incluirBorrador = false,
+		maxRows = 1000,
+	}) {
+		const { rows } = await query(
+			`SELECT
+         e.id AS embarque_id,
+         e.fecha_embarque::date AS fecha_embarque,
+         EXTRACT(ISOYEAR FROM e.fecha_embarque)::int AS anio_iso,
+         EXTRACT(WEEK FROM e.fecha_embarque)::int AS semana_iso,
+         COALESCE(SUM(ed.total_racimos), 0)::numeric AS total_racimos,
+         COALESCE(SUM(ed.racimos_rechazo), 0)::numeric AS racimos_rechazo
+       FROM embarques e
+       JOIN embarque_detalles ed ON ed.embarque_id = e.id
+       WHERE ed.finca_id = $1
+         AND ($2::boolean OR e.estado = 'CONFIRMADO')
+       GROUP BY e.id, e.fecha_embarque
+       ORDER BY e.fecha_embarque ASC
+       LIMIT $3`,
+			[fincaId, incluirBorrador, Math.max(1, Math.min(Number(maxRows || 1000), 5000))],
+		);
+		return rows || [];
+	},
 };

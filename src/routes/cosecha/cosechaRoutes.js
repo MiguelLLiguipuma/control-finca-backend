@@ -4,7 +4,10 @@ import {
 	getBalanceCampo,
 	getFechasOcupadas,
 } from '../../controllers/cosecha/cosechaController.js';
-import { obtenerPrediccionCosecha } from '../../controllers/cosecha/prediccionController.js';
+import {
+	obtenerPrediccionCosecha,
+	obtenerProyeccionEmbarqueComparativa,
+} from '../../controllers/cosecha/prediccionController.js';
 import { verificarSesion } from '../../middlewares/auth.js';
 
 const router = express.Router();
@@ -29,5 +32,9 @@ router.get('/fechas-ocupadas', getFechasOcupadas);
  * @desc    EL MOTOR: Obtiene inventario cruzado con Unidades Calor (GDD) y proyecciones de cajas.
  */
 router.get('/prediccion/:finca_id', obtenerPrediccionCosecha);
+router.get(
+	'/prediccion-embarque-comparativa/:finca_id',
+	obtenerProyeccionEmbarqueComparativa,
+);
 
 export default router;
