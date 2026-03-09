@@ -245,13 +245,6 @@ function getIsoWeekNow(dateInput = new Date()) {
 	return { anio: d.getUTCFullYear(), semana: weekNo };
 }
 
-function getSiguienteSemanaIso(anioActual, semanaActual) {
-	const currentWeekMonday = calcularFechaISODesdeSemana(anioActual, semanaActual);
-	const dt = new Date(`${currentWeekMonday}T00:00:00.000Z`);
-	dt.setUTCDate(dt.getUTCDate() + 7);
-	return getIsoWeekNow(dt);
-}
-
 function hashSimpleString(input) {
 	const text = String(input || '');
 	let hash = 0;
@@ -268,6 +261,8 @@ export function construirPrediccionAvanzada({
 	config,
 	fincaId,
 	fechaBase = new Date(),
+	semanaObjetivo = null,
+	anioObjetivo = null,
 }) {
 	const configSafe = {
 		semanaInicio: Number(config?.semanaInicio || 12),
@@ -285,7 +280,12 @@ export function construirPrediccionAvanzada({
 	const recientes = seriesOrdenadas.slice(-8);
 
 	const now = getIsoWeekNow(fechaBase);
-	const target = getSiguienteSemanaIso(now.anio, now.semana);
+	const target = {
+		anio: Number.isInteger(Number(anioObjetivo)) ? Number(anioObjetivo) : now.anio,
+		semana: Number.isInteger(Number(semanaObjetivo))
+			? Number(semanaObjetivo)
+			: now.semana,
+	};
 
 	if (recientes.length < HISTORICO_MINIMO_SEMANAS) {
 		const proyecciones = proyeccionPorLote(

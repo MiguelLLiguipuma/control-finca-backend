@@ -55,6 +55,14 @@ function getNextIsoWeek() {
 	return { anio, semana };
 }
 
+function resolveSemanaObjetivo(query) {
+	const objetivo = String(query?.objetivo || '').trim().toLowerCase();
+	if (objetivo === 'proxima' || objetivo === 'siguiente') {
+		return getNextIsoWeek();
+	}
+	return getIsoWeekNow();
+}
+
 function round(value, decimals = 2) {
 	const n = Number(value || 0);
 	if (!Number.isFinite(n)) return 0;
@@ -170,6 +178,7 @@ export const PrediccionAvanzadaService = {
 		}
 
 		const ventana = normalizarVentana(query?.ventana);
+		const objetivo = resolveSemanaObjetivo(query);
 
 		const [configRaw, promedioUcDiario, inventario] = await Promise.all([
 			PrediccionAvanzadaModel.obtenerConfiguracionFinca(finca),
@@ -191,6 +200,8 @@ export const PrediccionAvanzadaService = {
 			inventario,
 			config,
 			fincaId: finca,
+			semanaObjetivo: objetivo.semana,
+			anioObjetivo: objetivo.anio,
 		});
 
 		return {
@@ -242,10 +253,10 @@ export const PrediccionAvanzadaService = {
 			const bk = Number(b.anio_iso || 0) * 100 + Number(b.semana_iso || 0);
 			return ak - bk;
 		});
-		const next = getNextIsoWeek();
+		const objetivo = resolveSemanaObjetivo(query);
 		const baseValues = ordered.map((x) => Number(x.total_racimos || 0));
 		const baseHistorica = trimmedMean(baseValues);
-		const est = calcEstacional(ordered, next.semana);
+		const est = calcEstacional(ordered, objetivo.semana);
 		const rec = calcReciente(ordered);
 		const pesos = calcPesos(est.nivel, rec.nivel);
 
@@ -264,24 +275,28 @@ export const PrediccionAvanzadaService = {
 		const estimadoNeto = estimadoBruto * (1 - rechazoReciente / 100);
 		const maeRef = desviacion(baseValues) * 0.45;
 
-		const [configRaw, promedioUcDiario, inventario, series] = await Promise.all([
+		const [configRaw, promedioUcDiario, inventario] = await Promise.all([
 			PrediccionAvanzadaModel.obtenerConfiguracionFinca(finca),
 			PrediccionAvanzadaModel.obtenerPromedioClimaticoReciente(finca),
 			PrediccionAvanzadaModel.obtenerInventarioActual(finca),
-			PrediccionAvanzadaModel.obtenerSerieHistoricaSemanal({
-				fincaId: finca,
-				empresaId: empresaUsuario || Number(fincaRow.empresa_id || 0),
-				semanaInicioIdeal: Number(configRaw?.semana_inicio || 12),
-				semanaFinIdeal: Number(configRaw?.semana_fin || 13),
-				semanasHistoricas: 104,
-			}),
 		]);
+		const semanaInicioCfg = Number(configRaw?.semana_inicio || 12);
+		const semanaFinCfg = Number(configRaw?.semana_fin || 13);
+		const series = await PrediccionAvanzadaModel.obtenerSerieHistoricaSemanal({
+			fincaId: finca,
+			empresaId: empresaUsuario || Number(fincaRow.empresa_id || 0),
+			semanaInicioIdeal: semanaInicioCfg,
+			semanaFinIdeal: semanaFinCfg,
+			semanasHistoricas: 104,
+		});
 		const config = normalizarConfig(configRaw, promedioUcDiario);
 		const { resultado: aproxSistema } = construirPrediccionAvanzada({
 			series,
 			inventario,
 			config,
 			fincaId: finca,
+			semanaObjetivo: objetivo.semana,
+			anioObjetivo: objetivo.anio,
 		});
 		const sistema = Number(aproxSistema?.prediccion_proximo_embarque?.racimos_estimados || 0);
 		const deltaAbs = estimadoNeto - sistema;
@@ -289,8 +304,8 @@ export const PrediccionAvanzadaService = {
 
 		return {
 			finca_id: finca,
-			semana_objetivo: next.semana,
-			anio_objetivo: next.anio,
+			semana_objetivo: objetivo.semana,
+			anio_objetivo: objetivo.anio,
 			serie: {
 				total_embarques_considerados: ordered.length,
 				desde: String(ordered[0]?.fecha_embarque || ''),
