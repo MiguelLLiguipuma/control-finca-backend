@@ -1,8 +1,17 @@
 import { PrediccionAvanzadaModel } from '../../models/cosecha/prediccionAvanzadaModel.js';
 import { construirPrediccionAvanzada } from '../../domain/cosecha/prediccionAvanzadaDomain.js';
 import { resolveFincaScope, assertFincaInScope } from '../../utils/accessScope.js';
+import dayjs from 'dayjs';
+import isoWeek from 'dayjs/plugin/isoWeek.js';
+import utc from 'dayjs/plugin/utc.js';
+import timezone from 'dayjs/plugin/timezone.js';
+
+dayjs.extend(isoWeek);
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 const ALGORITMO_VERSION = 'agri-ts-v3';
+const DEFAULT_TZ = 'America/Guayaquil';
 
 function crearError(message, status = 400) {
 	const err = new Error(message);
@@ -35,13 +44,9 @@ function normalizarConfig(configRow, promedioUcDiario) {
 	};
 }
 
-function getIsoWeekNow(baseDate = new Date()) {
-	const d = new Date(Date.UTC(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate()));
-	const dayNum = d.getUTCDay() || 7;
-	d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-	const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-	const weekNo = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
-	return { anio: d.getUTCFullYear(), semana: weekNo };
+function getIsoWeekNow(baseDate = null, tz = DEFAULT_TZ) {
+	const d = baseDate ? dayjs(baseDate).tz(tz) : dayjs().tz(tz);
+	return { anio: d.isoWeekYear(), semana: d.isoWeek() };
 }
 
 function getNextIsoWeek() {
@@ -213,6 +218,12 @@ export const PrediccionAvanzadaService = {
 				algoritmo_version: ALGORITMO_VERSION,
 				ventana_historial: ventana,
 			},
+			temporal_debug: {
+				tz: DEFAULT_TZ,
+				objetivo: 'actual',
+				semana_objetivo: objetivo.semana,
+				anio_objetivo: objetivo.anio,
+			},
 		};
 	},
 
@@ -306,6 +317,10 @@ export const PrediccionAvanzadaService = {
 			finca_id: finca,
 			semana_objetivo: objetivo.semana,
 			anio_objetivo: objetivo.anio,
+			temporal_debug: {
+				tz: DEFAULT_TZ,
+				objetivo: String(query?.objetivo || 'actual'),
+			},
 			serie: {
 				total_embarques_considerados: ordered.length,
 				desde: String(ordered[0]?.fecha_embarque || ''),
