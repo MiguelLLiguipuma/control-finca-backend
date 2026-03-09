@@ -26,7 +26,21 @@ function toEnteroNoNegativo(valor) {
 }
 
 function validarFechaISO(fecha) {
-	return typeof fecha === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fecha);
+	if (typeof fecha !== 'string') return false;
+	const match = fecha.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+	if (!match) return false;
+	const year = Number(match[1]);
+	const month = Number(match[2]);
+	const day = Number(match[3]);
+	if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+		return false;
+	}
+	const d = new Date(Date.UTC(year, month - 1, day));
+	return (
+		d.getUTCFullYear() === year &&
+		d.getUTCMonth() + 1 === month &&
+		d.getUTCDate() === day
+	);
 }
 
 function normalizarFechaISO(fecha) {
@@ -242,6 +256,7 @@ export const CosechaService = {
 	procesarLiquidacion: async (payload, contexto = {}) => {
 		const { id_local, finca_id, fecha, detalles } = payload || {};
 		const fincaId = Number(finca_id);
+		const fechaIso = normalizarFechaISO(fecha);
 		const usuarioId = Number(contexto.usuarioIdSesion);
 		const scope = await resolveFincaScope({
 			rol: contexto.rolUsuario,
@@ -251,7 +266,7 @@ export const CosechaService = {
 		if (!fincaId) throw crearError('finca_id es requerido', 400);
 		if (!usuarioId) throw crearError('Sesión inválida: usuario no autenticado', 401);
 		assertFincaInScope(fincaId, scope);
-		if (!validarFechaISO(fecha)) {
+		if (!fechaIso || !validarFechaISO(fechaIso)) {
 			throw crearError('fecha debe estar en formato YYYY-MM-DD', 400);
 		}
 		if (!Array.isArray(detalles) || !detalles.length) {
@@ -265,26 +280,27 @@ export const CosechaService = {
 		const detallesNormalizados = detalles
 			.map(normalizarDetalle)
 			.filter((d) => d.cantidad_racimos > 0 || d.cantidad_rechazo > 0);
+		const detallesOrdenados = [...detallesNormalizados].sort(
+			(a, b) => a.calendario_id - b.calendario_id,
+		);
 
-		if (!detallesNormalizados.length) {
+		if (!detallesOrdenados.length) {
 			throw crearError('No hay cantidades válidas para registrar', 400);
 		}
 
-		for (const d of detallesNormalizados) {
+		for (const d of detallesOrdenados) {
 			if (!Number.isInteger(d.calendario_id) || d.calendario_id <= 0) {
 				throw crearError('calendario_id inválido en detalles', 400);
 			}
 		}
 
-		const payloadCanonico = {
-			finca_id: fincaId,
-			fecha,
-			usuario_id: usuarioId,
-			detalles: [...detallesNormalizados].sort(
-				(a, b) => a.calendario_id - b.calendario_id,
-			),
-		};
-		const payloadHash = hashPayload(payloadCanonico);
+			const payloadCanonico = {
+				finca_id: fincaId,
+				fecha: fechaIso,
+				usuario_id: usuarioId,
+				detalles: detallesOrdenados,
+			};
+			const payloadHash = hashPayload(payloadCanonico);
 
 		if (id_local) {
 			const estadoIdempotencia = await reservarIdempotencia(
@@ -301,69 +317,40 @@ export const CosechaService = {
 			}
 		}
 
-		const acumuladoPorCalendario = new Map();
-		for (const d of detallesNormalizados) {
-			const previo = acumuladoPorCalendario.get(d.calendario_id) || 0;
-			acumuladoPorCalendario.set(
-				d.calendario_id,
-				previo + d.cantidad_racimos + d.cantidad_rechazo,
-			);
-		}
+			const client = await pool.connect();
+			try {
+				await client.query('BEGIN');
 
-		const client = await pool.connect();
-		try {
-			await client.query('BEGIN');
-
-			for (const [calendarioId, totalSolicitado] of acumuladoPorCalendario.entries()) {
-				const saldo = await CosechaModel.obtenerSaldoCalendario(
-					fincaId,
-					calendarioId,
-					client,
-				);
-				if (saldo === null) {
-					throw crearError(
-						`Calendario ${calendarioId} no pertenece a la finca o no tiene saldo`,
-						400,
+				const registros = [];
+				for (const item of detallesOrdenados) {
+					const nuevoRegistro = await CosechaModel.insertarCosechaAtomic(
+						{
+							finca_id: fincaId,
+							fecha: fechaIso,
+							usuario_id: usuarioId,
+							calendario_id: item.calendario_id,
+							cantidad_racimos: item.cantidad_racimos,
+							cantidad_rechazo: item.cantidad_rechazo,
+						},
+						client,
 					);
+					registros.push(nuevoRegistro);
 				}
-				if (totalSolicitado > saldo) {
-					throw crearError(
-						`Saldo excedido en calendario ${calendarioId}. Disponible: ${saldo}, solicitado: ${totalSolicitado}`,
-						409,
-					);
-				}
-			}
 
-			const registros = [];
-			for (const item of detallesNormalizados) {
-				const nuevoRegistro = await CosechaModel.insertarCosecha(
-					{
-						finca_id: fincaId,
-						fecha,
-						usuario_id: usuarioId,
-						calendario_id: item.calendario_id,
-						cantidad_racimos: item.cantidad_racimos,
-						cantidad_rechazo: item.cantidad_rechazo,
-					},
-					client,
-				);
-				registros.push(nuevoRegistro);
-			}
+				await client.query('COMMIT');
 
-			await client.query('COMMIT');
+				const responseObj = {
+					registros,
+					total: registros.length,
+				};
+				await marcarIdempotenciaCompletada(id_local, responseObj);
 
-			const responseObj = {
-				registros,
-				total: registros.length,
-			};
-			await marcarIdempotenciaCompletada(id_local, responseObj);
-
-			return {
-				duplicated: false,
-				id_local,
-				...responseObj,
-			};
-		} catch (error) {
+				return {
+					duplicated: false,
+					id_local,
+					...responseObj,
+				};
+			} catch (error) {
 			await client.query('ROLLBACK');
 			await marcarIdempotenciaFallida(id_local, error.message);
 			throw error;
@@ -464,5 +451,9 @@ export const CosechaService = {
 			fecha_hasta: fechaHastaNormalizada,
 			fechas,
 		};
-	},
+		},
+	};
+
+export const __cosechaServiceInternals = {
+	validarFechaISO,
 };

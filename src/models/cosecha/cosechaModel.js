@@ -23,20 +23,25 @@ export const CosechaModel = {
 		return rows[0];
 	},
 
+	insertarCosechaAtomic: async (datos, client = null) => {
+		const query = `
+      SELECT *
+      FROM fn_registrar_cosecha_atomic($1, $2, $3::date, $4, $5, $6)`;
+		const values = [
+			datos.finca_id,
+			datos.usuario_id,
+			datos.fecha,
+			datos.calendario_id,
+			datos.cantidad_racimos,
+			datos.cantidad_rechazo,
+		];
+		const { rows } = await ejecutar(client, query, values);
+		return rows[0];
+	},
+
 	obtenerBalancePorFinca: async (fincaId) => {
 		const query = `SELECT * FROM vw_balance_campo WHERE finca_id = $1 AND saldo_en_campo > 0`;
 		const { rows } = await pool.query(query, [fincaId]);
 		return rows;
-	},
-
-	obtenerSaldoCalendario: async (fincaId, calendarioId, client = null) => {
-		const query = `
-      SELECT saldo_en_campo
-      FROM vw_balance_campo
-      WHERE finca_id = $1 AND calendario_id = $2
-      LIMIT 1`;
-		const { rows } = await ejecutar(client, query, [fincaId, calendarioId]);
-		if (!rows.length) return null;
-		return Number(rows[0].saldo_en_campo || 0);
 	},
 };
