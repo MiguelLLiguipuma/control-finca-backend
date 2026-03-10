@@ -23,20 +23,16 @@ export const CosechaModel = {
 		return rows[0];
 	},
 
-	insertarCosechaAtomic: async (datos, client = null) => {
+	insertarCosechaLoteAtomic: async (
+		{ finca_id, usuario_id, fecha, detalles },
+		client = null,
+	) => {
 		const query = `
       SELECT *
-      FROM fn_registrar_cosecha_atomic($1, $2, $3::date, $4, $5, $6)`;
-		const values = [
-			datos.finca_id,
-			datos.usuario_id,
-			datos.fecha,
-			datos.calendario_id,
-			datos.cantidad_racimos,
-			datos.cantidad_rechazo,
-		];
+      FROM fn_registrar_cosecha_lote_atomic($1, $2, $3::date, $4::jsonb)`;
+		const values = [finca_id, usuario_id, fecha, JSON.stringify(detalles || [])];
 		const { rows } = await ejecutar(client, query, values);
-		return rows[0];
+		return rows;
 	},
 
 	obtenerBalancePorFinca: async (fincaId) => {

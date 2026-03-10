@@ -321,21 +321,15 @@ export const CosechaService = {
 			try {
 				await client.query('BEGIN');
 
-				const registros = [];
-				for (const item of detallesOrdenados) {
-					const nuevoRegistro = await CosechaModel.insertarCosechaAtomic(
-						{
-							finca_id: fincaId,
-							fecha: fechaIso,
-							usuario_id: usuarioId,
-							calendario_id: item.calendario_id,
-							cantidad_racimos: item.cantidad_racimos,
-							cantidad_rechazo: item.cantidad_rechazo,
-						},
-						client,
-					);
-					registros.push(nuevoRegistro);
-				}
+				const registros = await CosechaModel.insertarCosechaLoteAtomic(
+					{
+						finca_id: fincaId,
+						usuario_id: usuarioId,
+						fecha: fechaIso,
+						detalles: detallesOrdenados,
+					},
+					client,
+				);
 
 				await client.query('COMMIT');
 
