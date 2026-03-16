@@ -6,6 +6,7 @@ import {
 } from '../../controllers/cosecha/cosechaController.js';
 import {
 	obtenerPrediccionCosecha,
+	obtenerPrediccionCosechaMulti,
 	obtenerProyeccionEmbarqueComparativa,
 } from '../../controllers/cosecha/prediccionController.js';
 import { verificarSesion } from '../../middlewares/auth.js';
@@ -32,6 +33,7 @@ router.get('/fechas-ocupadas', getFechasOcupadas);
  * @desc    EL MOTOR: Obtiene inventario cruzado con Unidades Calor (GDD) y proyecciones de cajas.
  */
 router.get('/prediccion/:finca_id', obtenerPrediccionCosecha);
+router.get('/prediccion-multi', obtenerPrediccionCosechaMulti);
 router.get(
 	'/prediccion-embarque-comparativa/:finca_id',
 	obtenerProyeccionEmbarqueComparativa,

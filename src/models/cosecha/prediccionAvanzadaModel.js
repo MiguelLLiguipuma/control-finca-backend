@@ -52,6 +52,29 @@ export const PrediccionAvanzadaModel = {
 		return rows[0] || null;
 	},
 
+	async obtenerMetaFincas(fincaIds = []) {
+		const ids = Array.from(
+			new Set(
+				(fincaIds || [])
+					.map((v) => Number(v))
+					.filter((n) => Number.isInteger(n) && n > 0),
+			),
+		);
+		if (!ids.length) return [];
+
+		const { rows } = await query(
+			`SELECT
+        f.id,
+        f.nombre AS finca_nombre,
+        COALESCE(e.nombre, 'No asignada') AS empresa_nombre
+       FROM fincas f
+       LEFT JOIN empresas e ON e.id = f.empresa_id
+       WHERE f.id = ANY($1::int[])`,
+			[ids],
+		);
+		return rows || [];
+	},
+
 	async obtenerConfiguracionFinca(fincaId) {
 		const columns = await loadConfigColumns();
 		if (!columns.hasTable) return null;

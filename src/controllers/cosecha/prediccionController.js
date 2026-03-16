@@ -21,6 +21,19 @@ export const obtenerPrediccionCosecha = async (req, res) => {
 	}
 };
 
+export const obtenerPrediccionCosechaMulti = async (req, res) => {
+	try {
+		const result = await PrediccionAvanzadaService.ejecutarMulti({
+			user: req.user,
+			query: req.query,
+		});
+		return res.json(result);
+	} catch (error) {
+		console.error('ERROR PREDICCION AVANZADA MULTI:', error?.message || error);
+		return manejarError(res, error);
+	}
+};
+
 export const obtenerProyeccionEmbarqueComparativa = async (req, res) => {
 	try {
 		const result = await PrediccionAvanzadaService.proyeccionEmbarqueComparativa({

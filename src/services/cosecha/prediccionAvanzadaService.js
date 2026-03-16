@@ -1,6 +1,10 @@
 import { PrediccionAvanzadaModel } from '../../models/cosecha/prediccionAvanzadaModel.js';
 import { construirPrediccionAvanzada } from '../../domain/cosecha/prediccionAvanzadaDomain.js';
-import { resolveFincaScope, assertFincaInScope } from '../../utils/accessScope.js';
+import {
+	resolveFincaScope,
+	assertFincaInScope,
+	applyFincaScopeToRequestedIds,
+} from '../../utils/accessScope.js';
 import dayjs from 'dayjs';
 import isoWeek from 'dayjs/plugin/isoWeek.js';
 import utc from 'dayjs/plugin/utc.js';
@@ -161,6 +165,60 @@ function calcPesos(estNivel, recNivel) {
 		estacional: wEst / total,
 		tendencia: wRec / total,
 	};
+}
+
+function parsearFincaIdsQuery(input) {
+	if (Array.isArray(input)) {
+		return Array.from(
+			new Set(
+				input
+					.map((v) => Number(v))
+					.filter((n) => Number.isInteger(n) && n > 0),
+			),
+		);
+	}
+	if (typeof input === 'string') {
+		return Array.from(
+			new Set(
+				input
+					.split(',')
+					.map((v) => Number(String(v).trim()))
+					.filter((n) => Number.isInteger(n) && n > 0),
+			),
+		);
+	}
+	return [];
+}
+
+function resumenPrediccion(prediccion) {
+	const embarque = prediccion?.prediccion_proximo_embarque || null;
+	if (!embarque) {
+		return {
+			racimos: 0,
+			rangoMin: 0,
+			rangoMax: 0,
+			ideal: 0,
+			riesgo: 0,
+			rechazoPct: 0,
+			confianza: 'BAJA',
+		};
+	}
+	return {
+		racimos: Number(embarque.racimos_estimados || 0),
+		rangoMin: Number(embarque.rango_minimo || 0),
+		rangoMax: Number(embarque.rango_maximo || 0),
+		ideal: Number(embarque.racimos_rango_ideal || 0),
+		riesgo: Number(embarque.racimos_en_riesgo || 0),
+		rechazoPct: Number(embarque.rechazo_estimado_pct || 0),
+		confianza: String(embarque.confianza || 'MEDIA').toUpperCase(),
+	};
+}
+
+function confianzaGlobalDesde(items) {
+	const niveles = items.map((x) => String(x?.confianza || '').toUpperCase());
+	if (niveles.some((x) => x === 'BAJA')) return 'BAJA';
+	if (niveles.some((x) => x === 'MEDIA')) return 'MEDIA';
+	return 'ALTA';
 }
 
 export const PrediccionAvanzadaService = {
@@ -351,6 +409,127 @@ export const PrediccionAvanzadaService = {
 				delta_abs: round(deltaAbs, 2),
 				delta_pct: round(deltaPct, 2),
 			},
+		};
+	},
+
+	async ejecutarMulti({ user, query }) {
+		const scope = await resolveFincaScope({
+			rol: user?.rol,
+			userId: Number(user?.id || 0),
+		});
+		const requested = parsearFincaIdsQuery(query?.finca_ids);
+		const fincaIds = applyFincaScopeToRequestedIds(requested, scope);
+
+		if (!fincaIds.length) {
+			if (!scope.enforce) {
+				throw crearError('Debe enviar finca_ids válido(s)', 400);
+			}
+			return {
+				finca_ids: [],
+				total_solicitadas: 0,
+				total_exitosas: 0,
+				total_fallidas: 0,
+				consolidado: {
+					racimos_estimados_total: 0,
+					rango_minimo_total: 0,
+					rango_maximo_total: 0,
+					racimos_ideal_total: 0,
+					racimos_riesgo_total: 0,
+					rechazo_ponderado_pct: 0,
+					confianza_global: 'BAJA',
+				},
+				items: [],
+			};
+		}
+
+		const settled = await Promise.allSettled(
+			fincaIds.map((fincaId) =>
+				this.ejecutar({
+					fincaId,
+					user,
+					query,
+				}),
+			),
+		);
+
+		const metaRows = await PrediccionAvanzadaModel.obtenerMetaFincas(fincaIds);
+		const metaById = new Map(
+			(metaRows || []).map((row) => [
+				Number(row.id),
+				{
+					finca_nombre: row.finca_nombre || null,
+					empresa_nombre: row.empresa_nombre || 'No asignada',
+				},
+			]),
+		);
+
+		const items = settled.map((result, index) => {
+			const fincaId = fincaIds[index];
+			const meta = metaById.get(Number(fincaId)) || {
+				finca_nombre: null,
+				empresa_nombre: 'No asignada',
+			};
+			if (result.status === 'fulfilled') {
+				const r = resumenPrediccion(result.value);
+				return {
+					finca_id: fincaId,
+					finca_nombre: meta.finca_nombre,
+					empresa_nombre: meta.empresa_nombre,
+					ok: true,
+					resumen: r,
+					data: result.value,
+				};
+			}
+			return {
+				finca_id: fincaId,
+				finca_nombre: meta.finca_nombre,
+				empresa_nombre: meta.empresa_nombre,
+				ok: false,
+				error: result.reason?.message || 'Error en predicción',
+			};
+		});
+
+		const exitosas = items.filter((x) => x.ok);
+		const racimosTotal = exitosas.reduce(
+			(acc, x) => acc + Number(x?.resumen?.racimos || 0),
+			0,
+		);
+		const rechazoPonderado = racimosTotal
+			? exitosas.reduce(
+					(acc, x) =>
+						acc +
+						Number(x?.resumen?.racimos || 0) * Number(x?.resumen?.rechazoPct || 0),
+					0,
+			  ) / racimosTotal
+			: 0;
+
+		return {
+			finca_ids: fincaIds,
+			total_solicitadas: fincaIds.length,
+			total_exitosas: exitosas.length,
+			total_fallidas: fincaIds.length - exitosas.length,
+			consolidado: {
+				racimos_estimados_total: racimosTotal,
+				rango_minimo_total: exitosas.reduce(
+					(acc, x) => acc + Number(x?.resumen?.rangoMin || 0),
+					0,
+				),
+				rango_maximo_total: exitosas.reduce(
+					(acc, x) => acc + Number(x?.resumen?.rangoMax || 0),
+					0,
+				),
+				racimos_ideal_total: exitosas.reduce(
+					(acc, x) => acc + Number(x?.resumen?.ideal || 0),
+					0,
+				),
+				racimos_riesgo_total: exitosas.reduce(
+					(acc, x) => acc + Number(x?.resumen?.riesgo || 0),
+					0,
+				),
+				rechazo_ponderado_pct: round(rechazoPonderado, 2),
+				confianza_global: confianzaGlobalDesde(exitosas.map((x) => x.resumen)),
+			},
+			items,
 		};
 	},
 };

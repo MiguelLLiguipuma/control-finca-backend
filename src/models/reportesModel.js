@@ -561,14 +561,48 @@ export const ReportesModel = {
 			LIMIT 80
 		`;
 
-		const [vouchers, rechazo, sinCosecha, sanidad] = await Promise.all([
-			query(vouchersSql, paramsVoucher),
-			query(rechazoSql, paramsRechazo),
-			query(sinCosechaSql, paramsSinCosecha),
-			query(sanidadSql, paramsSanidad),
-		]);
+		const consultas = [
+			{
+				nombre: 'vouchers_borrador',
+				sql: vouchersSql,
+				params: paramsVoucher,
+			},
+			{
+				nombre: 'rechazo_alto',
+				sql: rechazoSql,
+				params: paramsRechazo,
+			},
+			{
+				nombre: 'sin_cosecha',
+				sql: sinCosechaSql,
+				params: paramsSinCosecha,
+			},
+			{
+				nombre: 'sanidad',
+				sql: sanidadSql,
+				params: paramsSanidad,
+			},
+		];
 
-		return [...vouchers.rows, ...rechazo.rows, ...sinCosecha.rows, ...sanidad.rows];
+		const settled = await Promise.allSettled(
+			consultas.map((c) => query(c.sql, c.params)),
+		);
+
+		const filas = [];
+		settled.forEach((res, idx) => {
+			if (res.status === 'fulfilled') {
+				filas.push(...(res.value?.rows || []));
+				return;
+			}
+			const c = consultas[idx];
+			const code = res.reason?.code ? ` (${res.reason.code})` : '';
+			console.error(
+				`❌ Error parcial alertas [${c.nombre}]${code}:`,
+				res.reason?.message || res.reason,
+			);
+		});
+
+		return filas;
 	},
 
 	async registrarFumigacion({ fincaId, fechaFumigacion, observacion, usuarioId }) {

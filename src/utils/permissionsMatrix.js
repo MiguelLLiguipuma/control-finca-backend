@@ -43,6 +43,11 @@ export const PERMISSIONS_MATRIX = [
 		path: '/api/cosecha/registrar-liquidacion',
 		roles: ['ADMIN', 'SUPERVISOR', 'OPERADOR'],
 	},
+	{
+		method: 'GET',
+		path: '/api/cosecha/prediccion-multi',
+		roles: ['ADMIN', 'SUPERVISOR', 'OPERADOR'],
+	},
 	{ method: 'POST', path: '/api/embarque/vouchers', roles: ['ADMIN', 'SUPERVISOR', 'OPERADOR'] },
 	{
 		method: 'POST',
