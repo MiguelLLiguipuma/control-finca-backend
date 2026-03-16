@@ -243,11 +243,11 @@ export const PrediccionAvanzadaService = {
 		const ventana = normalizarVentana(query?.ventana);
 		const objetivo = resolveSemanaObjetivo(query);
 
-		const [configRaw, promedioUcDiario, inventario] = await Promise.all([
-			PrediccionAvanzadaModel.obtenerConfiguracionFinca(finca),
-			PrediccionAvanzadaModel.obtenerPromedioClimaticoReciente(finca),
-			PrediccionAvanzadaModel.obtenerInventarioActual(finca),
-		]);
+		const configRaw =
+			await PrediccionAvanzadaModel.obtenerConfiguracionFinca(finca);
+		const promedioUcDiario =
+			await PrediccionAvanzadaModel.obtenerPromedioClimaticoReciente(finca);
+		const inventario = await PrediccionAvanzadaModel.obtenerInventarioActual(finca);
 		const config = normalizarConfig(configRaw, promedioUcDiario);
 
 		const series = await PrediccionAvanzadaModel.obtenerSerieHistoricaSemanal({
@@ -344,11 +344,11 @@ export const PrediccionAvanzadaService = {
 		const estimadoNeto = estimadoBruto * (1 - rechazoReciente / 100);
 		const maeRef = desviacion(baseValues) * 0.45;
 
-		const [configRaw, promedioUcDiario, inventario] = await Promise.all([
-			PrediccionAvanzadaModel.obtenerConfiguracionFinca(finca),
-			PrediccionAvanzadaModel.obtenerPromedioClimaticoReciente(finca),
-			PrediccionAvanzadaModel.obtenerInventarioActual(finca),
-		]);
+		const configRaw =
+			await PrediccionAvanzadaModel.obtenerConfiguracionFinca(finca);
+		const promedioUcDiario =
+			await PrediccionAvanzadaModel.obtenerPromedioClimaticoReciente(finca);
+		const inventario = await PrediccionAvanzadaModel.obtenerInventarioActual(finca);
 		const semanaInicioCfg = Number(configRaw?.semana_inicio || 12);
 		const semanaFinCfg = Number(configRaw?.semana_fin || 13);
 		const series = await PrediccionAvanzadaModel.obtenerSerieHistoricaSemanal({
@@ -442,15 +442,19 @@ export const PrediccionAvanzadaService = {
 			};
 		}
 
-		const settled = await Promise.allSettled(
-			fincaIds.map((fincaId) =>
-				this.ejecutar({
+		const settled = [];
+		for (const fincaId of fincaIds) {
+			try {
+				const value = await this.ejecutar({
 					fincaId,
 					user,
 					query,
-				}),
-			),
-		);
+				});
+				settled.push({ status: 'fulfilled', value });
+			} catch (reason) {
+				settled.push({ status: 'rejected', reason });
+			}
+		}
 
 		const metaRows = await PrediccionAvanzadaModel.obtenerMetaFincas(fincaIds);
 		const metaById = new Map(
