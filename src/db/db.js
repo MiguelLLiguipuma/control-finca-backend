@@ -12,6 +12,11 @@ const dbConfig = {
 	password: process.env.DB_PASSWORD || '',
 	database: process.env.DB_NAME || 'control_finca',
 	port: Number(process.env.DB_PORT || 5432),
+	max: Number(process.env.DB_POOL_MAX || (process.env.NODE_ENV === 'production' ? 5 : 10)),
+	idleTimeoutMillis: Number(process.env.DB_IDLE_TIMEOUT_MS || 10000),
+	connectionTimeoutMillis: Number(process.env.DB_CONNECT_TIMEOUT_MS || 5000),
+	allowExitOnIdle: process.env.NODE_ENV !== 'production',
+	application_name: process.env.DB_APP_NAME || 'control-finca-backend',
 	ssl:
 		process.env.NODE_ENV === 'production'
 			? { rejectUnauthorized: false }
@@ -119,6 +124,11 @@ export const query = async (text, params) => {
 		client = await pool.connect();
 		return await client.query(text, params);
 	} catch (err) {
+		if (err?.code === '53300') {
+			err.status = 503;
+			err.message =
+				'Base de datos saturada temporalmente. Intente nuevamente en unos segundos.';
+		}
 		console.error('❌ Error en la consulta SQL:', err.message);
 		throw err;
 	} finally {
