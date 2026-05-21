@@ -7,6 +7,7 @@ dotenv.config();
 
 const { Pool } = pg;
 const isProduction = process.env.NODE_ENV === 'production';
+const databaseUrl = String(process.env.DATABASE_URL || '').trim();
 const DEFAULT_POOL_MAX = isProduction ? 3 : 10;
 const POOL_PRESSURE_WARN_INTERVAL_MS = Number(
 	process.env.DB_POOL_WARN_INTERVAL_MS || 30000,
@@ -15,12 +16,20 @@ const DB_SATURATION_COOLDOWN_MS = Number(
 	process.env.DB_SATURATION_COOLDOWN_MS || 5000,
 );
 
+const baseDbConfig = databaseUrl
+	? {
+		connectionString: databaseUrl,
+	  }
+	: {
+		host: process.env.DB_HOST || 'localhost',
+		user: process.env.DB_USER || 'postgres',
+		password: process.env.DB_PASSWORD || '',
+		database: process.env.DB_NAME || 'control_finca',
+		port: Number(process.env.DB_PORT || 5432),
+	  };
+
 const dbConfig = {
-	host: process.env.DB_HOST || 'localhost',
-	user: process.env.DB_USER || 'postgres',
-	password: process.env.DB_PASSWORD || '',
-	database: process.env.DB_NAME || 'control_finca',
-	port: Number(process.env.DB_PORT || 5432),
+	...baseDbConfig,
 	max: Number(process.env.DB_POOL_MAX || DEFAULT_POOL_MAX),
 	idleTimeoutMillis: Number(process.env.DB_IDLE_TIMEOUT_MS || 10000),
 	connectionTimeoutMillis: Number(process.env.DB_CONNECT_TIMEOUT_MS || 5000),
@@ -29,8 +38,8 @@ const dbConfig = {
 	ssl: isProduction ? { rejectUnauthorized: false } : false,
 };
 
-if (isProduction && !dbConfig.password) {
-	throw new Error('DB_PASSWORD es obligatorio en producción');
+if (isProduction && !databaseUrl && !dbConfig.password) {
+	throw new Error('DB_PASSWORD es obligatorio en producción cuando DATABASE_URL no está configurado');
 }
 
 export const pool = new Pool(dbConfig);
@@ -203,6 +212,7 @@ logger.info('db_pool_initialized', {
 	allowExitOnIdle: dbConfig.allowExitOnIdle,
 	ssl: Boolean(dbConfig.ssl),
 	application_name: dbConfig.application_name,
+	usingDatabaseUrl: Boolean(databaseUrl),
 	dbSaturationCooldownMs: DB_SATURATION_COOLDOWN_MS,
 });
 
