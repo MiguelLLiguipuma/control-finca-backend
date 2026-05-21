@@ -236,15 +236,11 @@ export const query = async (text, params) => {
 	}
 };
 
-pool
-	.connect()
-	.then((client) => {
-		logger.info('db_connected', getPoolStats());
+export async function testDbConnection() {
+	const client = await pool.connect();
+	try {
+		return getPoolStats();
+	} finally {
 		client.release();
-	})
-	.catch((err) =>
-		logger.error('db_connection_error', {
-			error: err?.message || 'unknown',
-			...getPoolStats(),
-		}),
-	);
+	}
+}

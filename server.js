@@ -1,5 +1,5 @@
 import dotenv from 'dotenv';
-import { pool, getPoolStats } from './src/db/db.js';
+import { testDbConnection } from './src/db/db.js';
 import { createApp } from './src/app.js';
 import { logger } from './src/utils/logger.js';
 import { initWeatherWorker } from './src/workers/weatherWorker.js';
@@ -14,9 +14,8 @@ export function startServer() {
 		logger.info('server_started', { port: PORT });
 
 		try {
-			const client = await pool.connect();
-			logger.info('db_connected', getPoolStats());
-			client.release();
+			const stats = await testDbConnection();
+			logger.info('db_connected', stats);
 
 			if (process.env.NODE_ENV !== 'test') {
 				initWeatherWorker();
