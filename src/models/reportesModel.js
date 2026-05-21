@@ -766,7 +766,7 @@ export const ReportesModel = {
            COALESCE(
              SUM(
                CASE
-                 WHEN edad_semana BETWEEN 12 AND 13 THEN total_lote
+                 WHEN edad_semana BETWEEN 11 AND 12 THEN total_lote
                  ELSE 0
                END
              ),
@@ -834,7 +834,7 @@ export const ReportesModel = {
            variacion_semanal_pct,
            ROUND(LEAST(100, GREATEST(0, corte_ideal_pct)), 2) AS score_corte,
            ROUND(LEAST(100, GREATEST(0, 100 - (rechazo_pct * 2))), 2) AS score_rechazo,
-           ROUND(LEAST(100, GREATEST(0, 100 - (ABS(edad_promedio - 12.5) * 20))), 2) AS score_edad,
+           ROUND(LEAST(100, GREATEST(0, 100 - (ABS(edad_promedio - 11.5) * 20))), 2) AS score_edad,
            ROUND(LEAST(100, GREATEST(0, 100 - (ABS(variacion_semanal_pct) * 4))), 2) AS score_variacion
          FROM metrics
        ),

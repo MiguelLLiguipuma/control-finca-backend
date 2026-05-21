@@ -183,8 +183,8 @@ export const PrediccionAvanzadaModel = {
 			[
 				fincaId,
 				cleanInt(empresaId),
-				Number(semanaInicioIdeal || 12),
-				Number(semanaFinIdeal || 13),
+				Number(semanaInicioIdeal ?? 11),
+				Number(semanaFinIdeal ?? 12),
 				weeks,
 			],
 		);

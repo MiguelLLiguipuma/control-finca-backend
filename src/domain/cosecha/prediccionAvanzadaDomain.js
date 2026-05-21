@@ -170,8 +170,8 @@ function proyeccionPorLote(
 	promedioUcDiario,
 ) {
 	if (!Array.isArray(inventario)) return [];
-	const inicio = Number(corteInicio || 12);
-	const fin = Math.max(inicio, Number(corteFin || 13));
+	const inicio = Number(corteInicio ?? 11);
+	const fin = Math.max(inicio, Number(corteFin ?? 12));
 	const ventana = Math.max(1, fin - inicio);
 	const metaUcSafe = Math.max(1, Number(metaUc || 900));
 	const ucDiarioSafe = Math.max(0.1, Number(promedioUcDiario || 12.8));
@@ -265,8 +265,8 @@ export function construirPrediccionAvanzada({
 	anioObjetivo = null,
 }) {
 	const configSafe = {
-		semanaInicio: Number(config?.semanaInicio || 12),
-		semanaFin: Number(config?.semanaFin || 13),
+		semanaInicio: Number(config?.semanaInicio ?? 11),
+		semanaFin: Number(config?.semanaFin ?? 12),
 		ratioCajasRacimo: Number(config?.ratioCajasRacimo || 1.05),
 		metaUc: Number(config?.metaUc || 900),
 		promedioUcDiario: Number(config?.promedioUcDiario || 12.8),

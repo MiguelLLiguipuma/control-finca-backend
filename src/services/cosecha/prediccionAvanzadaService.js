@@ -36,8 +36,8 @@ function normalizarVentana(raw) {
 }
 
 function normalizarConfig(configRow, promedioUcDiario) {
-	const semanaInicio = Math.max(1, Math.min(52, Number(configRow?.semana_inicio || 12)));
-	const semanaFinRaw = Math.max(1, Math.min(52, Number(configRow?.semana_fin || 13)));
+	const semanaInicio = Math.max(0, Math.min(52, Number(configRow?.semana_inicio ?? 11)));
+	const semanaFinRaw = Math.max(0, Math.min(52, Number(configRow?.semana_fin ?? 12)));
 	const semanaFin = Math.max(semanaInicio, semanaFinRaw);
 	return {
 		metaUc: Number(configRow?.meta_uc || 900),
@@ -349,8 +349,8 @@ export const PrediccionAvanzadaService = {
 		const promedioUcDiario =
 			await PrediccionAvanzadaModel.obtenerPromedioClimaticoReciente(finca);
 		const inventario = await PrediccionAvanzadaModel.obtenerInventarioActual(finca);
-		const semanaInicioCfg = Number(configRaw?.semana_inicio || 12);
-		const semanaFinCfg = Number(configRaw?.semana_fin || 13);
+		const semanaInicioCfg = Number(configRaw?.semana_inicio ?? 11);
+		const semanaFinCfg = Number(configRaw?.semana_fin ?? 12);
 		const series = await PrediccionAvanzadaModel.obtenerSerieHistoricaSemanal({
 			fincaId: finca,
 			empresaId: empresaUsuario || Number(fincaRow.empresa_id || 0),
