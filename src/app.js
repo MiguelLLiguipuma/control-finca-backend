@@ -17,7 +17,7 @@ import { createRateLimit } from './middlewares/rateLimitSimple.js';
 import { requestContext } from './middlewares/requestContext.js';
 import { requestLogger } from './middlewares/requestLogger.js';
 import { logger } from './utils/logger.js';
-import { query } from './db/db.js';
+import { query, getPoolStats } from './db/db.js';
 
 function getAllowedOrigins() {
 	const envList = String(process.env.CORS_ORIGINS || '')
@@ -124,6 +124,7 @@ export function createApp() {
 			return res.json({
 				status: 'OK',
 				node_env: process.env.NODE_ENV || 'development',
+				db_pool: getPoolStats(),
 				rls: {
 					expected_tables: tablasRls,
 					tables: rlsRows,

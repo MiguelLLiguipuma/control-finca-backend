@@ -9,6 +9,37 @@ function normalizeRole(role) {
 	return raw;
 }
 
+const SESSION_CACHE_TTL_MS = Number(process.env.AUTH_SESSION_CACHE_TTL_MS || 30000);
+const sessionCache = new Map();
+
+function buildSessionCacheKey(userId, tokenVersion, role, empresaId) {
+	return [userId, tokenVersion, normalizeRole(role), Number(empresaId || 0) || 0].join(':');
+}
+
+function getCachedSession(key) {
+	const cached = sessionCache.get(key);
+	if (!cached) return null;
+	if (cached.expiresAt <= Date.now()) {
+		sessionCache.delete(key);
+		return null;
+	}
+	return cached.value;
+}
+
+function setCachedSession(key, value) {
+	sessionCache.set(key, {
+		expiresAt: Date.now() + SESSION_CACHE_TTL_MS,
+		value,
+	});
+}
+
+function respondDbSaturated(res, error) {
+	return res.status(503).json({
+		message:
+			error?.message || 'Base de datos saturada temporalmente. Intente nuevamente en unos segundos.',
+	});
+}
+
 export const verificarSesion = async (req, res, next) => {
 	const authHeader = req.headers.authorization;
 
@@ -33,6 +64,25 @@ export const verificarSesion = async (req, res, next) => {
 			return res.status(403).json({ message: 'Token de seguridad no válido' });
 		}
 
+		const normalizedRole = normalizeRole(decoded?.rol);
+		const cacheKey = buildSessionCacheKey(
+			userId,
+			tokenVersion,
+			decoded?.rol,
+			decoded?.eid,
+		);
+		const cached = getCachedSession(cacheKey);
+		if (cached) {
+			req.user = cached.user;
+			setRequestAuthScope({
+				userId,
+				empresaId: cached.user.empresa_id,
+				role: decoded?.rol,
+				allowedFincaIds: cached.allowedFincaIds,
+			});
+			return next();
+		}
+
 		const userRes = await query(
 			`SELECT id, activo, empresa_id, COALESCE(token_version, 1) AS token_version
        FROM usuarios
@@ -50,13 +100,13 @@ export const verificarSesion = async (req, res, next) => {
 			return res.status(403).json({ message: 'Sesión expirada, ingrese nuevamente' });
 		}
 
+		const empresaId = Number(decoded?.eid || userRes.rows[0].empresa_id || 0) || null;
 		req.user = {
 			id: userId,
 			rol: decoded?.rol,
-			empresa_id: Number(decoded?.eid || userRes.rows[0].empresa_id || 0) || null,
+			empresa_id: empresaId,
 			tv: tokenVersion,
 		};
-		const normalizedRole = normalizeRole(decoded?.rol);
 		let allowedFincaIds = [];
 		if (normalizedRole === 'OPERADOR' || normalizedRole === 'SUPERVISOR') {
 			const fincasRes = await query(
@@ -69,6 +119,12 @@ export const verificarSesion = async (req, res, next) => {
 				.map((r) => Number(r.finca_id))
 				.filter((n) => Number.isInteger(n) && n > 0);
 		}
+
+		setCachedSession(cacheKey, {
+			user: req.user,
+			allowedFincaIds,
+		});
+
 		setRequestAuthScope({
 			userId,
 			empresaId: req.user.empresa_id,
@@ -78,6 +134,11 @@ export const verificarSesion = async (req, res, next) => {
 
 		return next();
 	} catch (error) {
+		if (error?.status === 503 || error?.code === '53300') {
+			console.error(`🔐 Error Auth: ${error.message}`);
+			return respondDbSaturated(res, error);
+		}
+
 		const mensaje =
 			error?.name === 'TokenExpiredError'
 				? 'Sesión expirada, ingrese nuevamente'

@@ -8,6 +8,16 @@ function normalizarEmail(email) {
 	return String(email || '').trim().toLowerCase();
 }
 
+function responderErrorServidor(res, error, fallbackMessage = 'Error en el servidor') {
+	if (error?.status === 503 || error?.code === '53300') {
+		return res.status(503).json({
+			message:
+				error?.message || 'Base de datos saturada temporalmente. Intente nuevamente en unos segundos.',
+		});
+	}
+	return res.status(500).json({ message: fallbackMessage });
+}
+
 let googleClient = null;
 
 function getGoogleClient() {
@@ -101,7 +111,7 @@ export const login = async (req, res) => {
 		return res.json(buildTokenAndUser(user));
 	} catch (error) {
 		console.error('Error en login:', error);
-		return res.status(500).json({ message: 'Error en el servidor' });
+		return responderErrorServidor(res, error);
 	}
 };
 
@@ -151,7 +161,7 @@ export const register = async (req, res) => {
 		});
 	} catch (error) {
 		console.error('Error en registro:', error);
-		return res.status(500).json({ message: 'Error en el servidor' });
+		return responderErrorServidor(res, error);
 	}
 };
 
