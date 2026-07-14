@@ -107,12 +107,57 @@ export const PrediccionAvanzadaModel = {
          FROM historial_clima_fincas
          WHERE finca_id = $1
            AND fecha <= CURRENT_DATE
+           AND fecha >= CURRENT_DATE - INTERVAL '6 days'
          ORDER BY fecha DESC
          LIMIT 7
        ) x`,
 			[fincaId],
 		);
 		return Number(rows?.[0]?.promedio_uc || 0);
+	},
+
+	async obtenerSaludClimatica(fincaId) {
+		const { rows } = await query(
+			`SELECT
+         MAX(fecha)::date AS ultima_fecha_clima,
+         CASE
+           WHEN MAX(fecha) IS NULL THEN NULL
+           ELSE (CURRENT_DATE - MAX(fecha)::date)::int
+         END AS dias_atraso,
+         COUNT(fecha)::int AS registros_total,
+         COUNT(fecha) FILTER (
+           WHERE fecha >= CURRENT_DATE - INTERVAL '6 days'
+             AND fecha <= CURRENT_DATE
+         )::int AS registros_ultimos_7_dias,
+         AVG(unidades_calor_dia) FILTER (
+           WHERE fecha >= CURRENT_DATE - INTERVAL '6 days'
+             AND fecha <= CURRENT_DATE
+         )::numeric AS promedio_uc_7_dias
+       FROM historial_clima_fincas
+       WHERE finca_id = $1`,
+			[fincaId],
+		);
+		const row = rows?.[0] || {};
+		const ultimaFecha = row.ultima_fecha_clima || null;
+		const diasAtraso = ultimaFecha ? Number(row.dias_atraso || 0) : null;
+		const registrosUltimos7 = Number(row.registros_ultimos_7_dias || 0);
+		const staleDays = Number(process.env.WEATHER_STALE_DAYS || 2);
+		const estado = !ultimaFecha
+			? 'SIN_DATOS'
+			: diasAtraso > staleDays || registrosUltimos7 === 0
+				? 'ATRASADO'
+				: 'ACTUALIZADO';
+
+		return {
+			ultima_fecha_clima: ultimaFecha,
+			dias_atraso: diasAtraso,
+			registros_total: Number(row.registros_total || 0),
+			registros_ultimos_7_dias: registrosUltimos7,
+			promedio_uc_7_dias:
+				row.promedio_uc_7_dias === null ? null : Number(row.promedio_uc_7_dias || 0),
+			estado,
+			confiable: estado === 'ACTUALIZADO',
+		};
 	},
 
 	async obtenerSerieHistoricaSemanal({

@@ -35,13 +35,22 @@ function normalizarVentana(raw) {
 	return Math.max(4, Math.min(n, 8));
 }
 
-function normalizarConfig(configRow, promedioUcDiario) {
+function normalizarPromedioUcDiario(value, climaConfiable) {
+	const n = Number(value);
+	if (Number.isFinite(n)) return Math.max(0, n);
+	return climaConfiable ? 12.8 : 0;
+}
+
+function normalizarConfig(configRow, promedioUcDiario, opciones = {}) {
 	const semanaInicio = Math.max(0, Math.min(52, Number(configRow?.semana_inicio ?? 11)));
 	const semanaFinRaw = Math.max(0, Math.min(52, Number(configRow?.semana_fin ?? 12)));
 	const semanaFin = Math.max(semanaInicio, semanaFinRaw);
+	const climaConfiable = opciones.climaConfiable !== false;
 	return {
 		metaUc: Number(configRow?.meta_uc || 900),
-		promedioUcDiario: Number(promedioUcDiario || 12.8),
+		promedioUcDiario: normalizarPromedioUcDiario(promedioUcDiario, climaConfiable),
+		climaConfiable,
+		clima: opciones.clima || null,
 		ratioCajasRacimo: Number(configRow?.ratio || 1.05),
 		semanaInicio,
 		semanaFin,
@@ -245,10 +254,15 @@ export const PrediccionAvanzadaService = {
 
 		const configRaw =
 			await PrediccionAvanzadaModel.obtenerConfiguracionFinca(finca);
-		const promedioUcDiario =
-			await PrediccionAvanzadaModel.obtenerPromedioClimaticoReciente(finca);
+		const clima = await PrediccionAvanzadaModel.obtenerSaludClimatica(finca);
+		const promedioUcDiario = clima?.confiable
+			? Number(clima.promedio_uc_7_dias || 0)
+			: 0;
 		const inventario = await PrediccionAvanzadaModel.obtenerInventarioActual(finca);
-		const config = normalizarConfig(configRaw, promedioUcDiario);
+		const config = normalizarConfig(configRaw, promedioUcDiario, {
+			climaConfiable: Boolean(clima?.confiable),
+			clima,
+		});
 
 		const series = await PrediccionAvanzadaModel.obtenerSerieHistoricaSemanal({
 			fincaId: finca,
@@ -346,8 +360,10 @@ export const PrediccionAvanzadaService = {
 
 		const configRaw =
 			await PrediccionAvanzadaModel.obtenerConfiguracionFinca(finca);
-		const promedioUcDiario =
-			await PrediccionAvanzadaModel.obtenerPromedioClimaticoReciente(finca);
+		const clima = await PrediccionAvanzadaModel.obtenerSaludClimatica(finca);
+		const promedioUcDiario = clima?.confiable
+			? Number(clima.promedio_uc_7_dias || 0)
+			: 0;
 		const inventario = await PrediccionAvanzadaModel.obtenerInventarioActual(finca);
 		const semanaInicioCfg = Number(configRaw?.semana_inicio ?? 11);
 		const semanaFinCfg = Number(configRaw?.semana_fin ?? 12);
@@ -358,7 +374,10 @@ export const PrediccionAvanzadaService = {
 			semanaFinIdeal: semanaFinCfg,
 			semanasHistoricas: 104,
 		});
-		const config = normalizarConfig(configRaw, promedioUcDiario);
+		const config = normalizarConfig(configRaw, promedioUcDiario, {
+			climaConfiable: Boolean(clima?.confiable),
+			clima,
+		});
 		const { resultado: aproxSistema } = construirPrediccionAvanzada({
 			series,
 			inventario,

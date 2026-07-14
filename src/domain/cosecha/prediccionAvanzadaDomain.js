@@ -135,6 +135,12 @@ function asegurarEnteroNoNegativo(value) {
 	return Math.max(0, Math.round(n));
 }
 
+function normalizarUcDiario(value, climaConfiable) {
+	const n = Number(value);
+	if (Number.isFinite(n)) return Math.max(0, n);
+	return climaConfiable ? 12.8 : 0;
+}
+
 function isoWeekStartDateUTC(anio, semana) {
 	const january4 = new Date(Date.UTC(anio, 0, 4));
 	const day = january4.getUTCDay() || 7;
@@ -168,13 +174,16 @@ function proyeccionPorLote(
 	semanaActual,
 	metaUc,
 	promedioUcDiario,
+	climaConfiable = true,
 ) {
 	if (!Array.isArray(inventario)) return [];
 	const inicio = Number(corteInicio ?? 11);
 	const fin = Math.max(inicio, Number(corteFin ?? 12));
 	const ventana = Math.max(1, fin - inicio);
 	const metaUcSafe = Math.max(1, Number(metaUc || 900));
-	const ucDiarioSafe = Math.max(0.1, Number(promedioUcDiario || 12.8));
+	const ucDiarioInput = Number(promedioUcDiario);
+	const ucDiarioSafe =
+		Number.isFinite(ucDiarioInput) && ucDiarioInput > 0 ? ucDiarioInput : 0.1;
 	const todayUtc = new Date();
 
 	return inventario
@@ -195,7 +204,7 @@ function proyeccionPorLote(
 					: edadActual <= fin
 					? clamp(80 + ((edadActual - inicio) / ventana) * 20, 80, 100)
 					: 100;
-			const usaClima = ucAcumuladas > 0;
+			const usaClima = Boolean(climaConfiable) && ucAcumuladas > 0;
 			const diasFaltantes = usaClima ? Math.max(0, diasPorUc) : diasPorEdad;
 			const madurez = usaClima ? madurezTermica : madurezEdad;
 			const mensaje =
@@ -218,7 +227,11 @@ function proyeccionPorLote(
 				fecha_estimada: fechaEstimada,
 				cajas_esperadas: asegurarEnteroNoNegativo(saldo * Number(ratio || 1)),
 				mensaje_clima: mensaje,
-				tendencia_climatica: ucDiarioSafe >= 14 ? 'Calor Alto' : 'Normal',
+				tendencia_climatica: !climaConfiable
+					? 'Clima atrasado - cálculo por edad'
+					: ucDiarioSafe >= 14
+					? 'Calor Alto'
+					: 'Normal',
 			};
 		})
 		.sort((a, b) => a.dias_faltantes - b.dias_faltantes);
@@ -269,8 +282,13 @@ export function construirPrediccionAvanzada({
 		semanaFin: Number(config?.semanaFin ?? 12),
 		ratioCajasRacimo: Number(config?.ratioCajasRacimo || 1.05),
 		metaUc: Number(config?.metaUc || 900),
-		promedioUcDiario: Number(config?.promedioUcDiario || 12.8),
+		climaConfiable: config?.climaConfiable !== false,
+		clima: config?.clima || null,
 	};
+	configSafe.promedioUcDiario = normalizarUcDiario(
+		config?.promedioUcDiario,
+		configSafe.climaConfiable,
+	);
 
 	const seriesOrdenadas = [...(series || [])].sort((a, b) => {
 		const aIdx = Number(a.anio_iso || 0) * 53 + Number(a.semana_iso || 0);
@@ -297,6 +315,7 @@ export function construirPrediccionAvanzada({
 			now.semana,
 			configSafe.metaUc,
 			configSafe.promedioUcDiario,
+			configSafe.climaConfiable,
 		);
 
 		const totalSaldo = proyecciones.reduce((acc, p) => acc + Number(p.saldo_en_campo || 0), 0);
@@ -310,6 +329,7 @@ export function construirPrediccionAvanzada({
 			meta_aplicada: round(configSafe.metaUc, 2),
 			promedio_climatico_semanal: round(configSafe.promedioUcDiario, 2).toFixed(2),
 			promedio_uc_diario: round(configSafe.promedioUcDiario, 2).toFixed(2),
+			clima: configSafe.clima,
 			ratio_aplicado: round(configSafe.ratioCajasRacimo, 4),
 			semana_inicio: configSafe.semanaInicio,
 			semana_fin: configSafe.semanaFin,
@@ -333,6 +353,7 @@ export function construirPrediccionAvanzada({
 			modelo: {
 				version: 'agri-ts-v1',
 				semanas_analizadas: recientes.length,
+				clima: configSafe.clima,
 				mensaje:
 					'Historico insuficiente (minimo 4 semanas). Se aplico estimacion conservadora con inventario actual.',
 			},
@@ -379,6 +400,7 @@ export function construirPrediccionAvanzada({
 		now.semana,
 		configSafe.metaUc,
 		configSafe.promedioUcDiario,
+		configSafe.climaConfiable,
 	);
 
 	const respuesta = {
@@ -386,6 +408,7 @@ export function construirPrediccionAvanzada({
 		meta_aplicada: round(configSafe.metaUc, 2),
 		promedio_climatico_semanal: round(configSafe.promedioUcDiario, 2).toFixed(2),
 		promedio_uc_diario: round(configSafe.promedioUcDiario, 2).toFixed(2),
+		clima: configSafe.clima,
 		ratio_aplicado: round(configSafe.ratioCajasRacimo, 4),
 		semana_inicio: configSafe.semanaInicio,
 		semana_fin: configSafe.semanaFin,
@@ -416,6 +439,7 @@ export function construirPrediccionAvanzada({
 			considera_estacionalidad: true,
 			considera_rechazo: true,
 			considera_edad_corte: true,
+			clima: configSafe.clima,
 		},
 	};
 
