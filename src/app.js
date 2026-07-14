@@ -13,6 +13,7 @@ import authRoutes from './routes/authRoutes.js';
 import cosechaRoutes from './routes/cosecha/cosechaRoutes.js';
 import embarqueRoutes from './routes/embarqueRoutes.js';
 import balanzaRoutes from './routes/balanzaRoutes.js';
+import climaRoutes from './routes/climaRoutes.js';
 import { createRateLimit } from './middlewares/rateLimitSimple.js';
 import { requestContext } from './middlewares/requestContext.js';
 import { requestLogger } from './middlewares/requestLogger.js';
@@ -152,6 +153,7 @@ export function createApp() {
 	app.use('/api/calendarios-enfunde', calendarioRoutes);
 	app.use('/api/registros', registroRoutes);
 	app.use('/api/cosecha', cosechaRoutes);
+	app.use('/api/clima', climaRoutes);
 	app.use('/api/embarque', embarqueRoutes);
 	app.use('/api/auth', authRoutes);
 	app.use('/api/balanza', balanzaRoutes);

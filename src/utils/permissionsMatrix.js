@@ -48,6 +48,8 @@ export const PERMISSIONS_MATRIX = [
 		path: '/api/cosecha/prediccion-multi',
 		roles: ['ADMIN', 'SUPERVISOR', 'OPERADOR'],
 	},
+	{ method: 'GET', path: '/api/clima/status', roles: ['ADMIN', 'SUPERVISOR', 'OPERADOR'] },
+	{ method: 'POST', path: '/api/clima/sync', roles: ['ADMIN', 'SUPERVISOR'] },
 	{ method: 'POST', path: '/api/embarque/vouchers', roles: ['ADMIN', 'SUPERVISOR', 'OPERADOR'] },
 	{
 		method: 'POST',
