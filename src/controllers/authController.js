@@ -3,23 +3,12 @@ import jwt from 'jsonwebtoken';
 import { OAuth2Client } from 'google-auth-library';
 import { randomUUID } from 'crypto';
 import { hashPassword, verifyPassword } from '../utils/password.js';
-import {
-	buildPasskeyLoginOptions,
-	buildPasskeyRegisterOptions,
-	verifyPasskeyLogin,
-	verifyPasskeyRegistration,
-} from '../services/auth/passkeyService.js';
 
 function normalizarEmail(email) {
 	return String(email || '').trim().toLowerCase();
 }
 
 function responderErrorServidor(res, error, fallbackMessage = 'Error en el servidor') {
-	if (Number(error?.status || 0) >= 400 && Number(error?.status || 0) < 500) {
-		return res.status(error.status).json({
-			message: error.message || fallbackMessage,
-		});
-	}
 	if (error?.status === 503 || error?.code === '53300') {
 		return res.status(503).json({
 			message:
@@ -296,47 +285,5 @@ export const googleLogin = async (req, res) => {
 	} catch (error) {
 		console.error('Error en login Google:', error);
 		return res.status(401).json({ message: 'No se pudo autenticar con Google' });
-	}
-};
-
-export const passkeyRegisterOptions = async (req, res) => {
-	try {
-		const payload = await buildPasskeyRegisterOptions(req);
-		return res.json(payload);
-	} catch (error) {
-		console.error('Error generando opciones passkey:', error);
-		return responderErrorServidor(res, error, 'No se pudo iniciar registro biométrico');
-	}
-};
-
-export const passkeyRegisterVerify = async (req, res) => {
-	try {
-		await verifyPasskeyRegistration(req);
-		return res.json({
-			message: 'Huella/passkey activada correctamente para este dispositivo.',
-		});
-	} catch (error) {
-		console.error('Error verificando registro passkey:', error);
-		return responderErrorServidor(res, error, 'No se pudo activar huella/passkey');
-	}
-};
-
-export const passkeyLoginOptions = async (req, res) => {
-	try {
-		const payload = await buildPasskeyLoginOptions(req);
-		return res.json(payload);
-	} catch (error) {
-		console.error('Error generando login passkey:', error);
-		return responderErrorServidor(res, error, 'No se pudo iniciar login biométrico');
-	}
-};
-
-export const passkeyLoginVerify = async (req, res) => {
-	try {
-		const user = await verifyPasskeyLogin(req);
-		return res.json(buildTokenAndUser(user));
-	} catch (error) {
-		console.error('Error verificando login passkey:', error);
-		return responderErrorServidor(res, error, 'No se pudo iniciar sesión con huella');
 	}
 };
