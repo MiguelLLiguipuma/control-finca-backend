@@ -11,6 +11,15 @@ BEGIN
   ) THEN
     IF EXISTS (
       SELECT 1
+      FROM pg_constraint
+      WHERE conname = 'chk_configuracion_crecimiento_semanas'
+    ) THEN
+      ALTER TABLE configuracion_crecimiento
+      DROP CONSTRAINT chk_configuracion_crecimiento_semanas;
+    END IF;
+
+    IF EXISTS (
+      SELECT 1
       FROM information_schema.columns
       WHERE table_schema = 'public'
         AND table_name = 'configuracion_crecimiento'
@@ -38,5 +47,17 @@ BEGIN
           AND semana_fin > 0
       ';
     END IF;
+
+    ALTER TABLE configuracion_crecimiento
+    ADD CONSTRAINT chk_configuracion_crecimiento_semanas
+    CHECK (
+      semana_inicio IS NULL
+      OR semana_fin IS NULL
+      OR (
+        semana_inicio >= 0
+        AND semana_fin >= semana_inicio
+        AND semana_fin <= 52
+      )
+    );
   END IF;
 END $$;
