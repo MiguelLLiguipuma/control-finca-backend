@@ -17,7 +17,9 @@ CREATE INDEX IF NOT EXISTS idx_ajustes_inventario_finca_cal
 CREATE INDEX IF NOT EXISTS idx_ajustes_inventario_creado
   ON ajustes_inventario_campo(creado_en DESC);
 
-CREATE OR REPLACE VIEW vw_balance_campo AS
+DROP VIEW IF EXISTS public.vw_balance_campo;
+
+CREATE VIEW public.vw_balance_campo AS
 WITH ajustes AS (
   SELECT
     finca_id,
@@ -30,6 +32,7 @@ SELECT
   f.id AS finca_id,
   ce.id AS calendario_id,
   ce.semana AS semana_enfunde,
+  ce.anio AS anio,
   c.color AS color_cinta,
   c.color_hex,
   COALESCE(SUM(re.cantidad_fundas), 0::bigint) AS total_enfunde,
@@ -71,7 +74,7 @@ JOIN cintas c ON ce.color_id = c.id
 LEFT JOIN ajustes a
   ON a.finca_id = f.id
  AND a.calendario_id = ce.id
-GROUP BY f.id, ce.id, ce.semana, c.color, c.color_hex;
+GROUP BY f.id, ce.id, ce.semana, ce.anio, c.color, c.color_hex;
 
 ALTER TABLE public.ajustes_inventario_campo ENABLE ROW LEVEL SECURITY;
 
