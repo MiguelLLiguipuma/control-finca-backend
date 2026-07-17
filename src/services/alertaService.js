@@ -12,6 +12,9 @@ dayjs.extend(timezone);
 
 const DEFAULT_TZ = 'America/Guayaquil';
 const DEFAULT_EDAD_CRITICA_CINTA = Number(process.env.ALERTA_CINTA_EDAD_CRITICA || 15);
+const DEFAULT_EDAD_HISTORICA_CINTA = Number(
+	process.env.ALERTA_CINTA_EDAD_HISTORICA || 17,
+);
 const DEFAULT_DIAS_FUMIGACION = Number(process.env.ALERTA_FUMIGACION_DIAS_MAX || 14);
 const DEFAULT_DIAS_CLIMA = Number(process.env.ALERTA_CLIMA_DIAS_MAX || 1);
 
@@ -107,8 +110,12 @@ async function generarFaltaEnfunde({ fecha, fincaIds }) {
 	return resultados;
 }
 
-async function generarCintasCriticas({ fincaIds, edadCritica }) {
-	const rows = await AlertaModel.detectarCintasCriticas({ fincaIds, edadCritica });
+async function generarCintasCriticas({ fincaIds, edadCritica, edadHistorica }) {
+	const rows = await AlertaModel.detectarCintasCriticas({
+		fincaIds,
+		edadCritica,
+		edadHistorica,
+	});
 	const resultados = [];
 	for (const row of rows) {
 		const edad = Number(row.edad_semanas || 0);
@@ -131,8 +138,46 @@ async function generarCintasCriticas({ fincaIds, edadCritica }) {
 						saldo_en_campo: Number(row.saldo_en_campo || 0),
 						edad_semanas: edad,
 						edad_critica: edadCritica,
+						edad_historica: edadHistorica,
 					},
-					dedupe_key: `cinta_critica:${row.finca_id}:${row.calendario_id}:${edadCritica}`,
+					dedupe_key: `cinta_critica:${row.finca_id}:${row.calendario_id}:${edadCritica}:${edadHistorica}`,
+				},
+				row,
+			),
+		);
+	}
+	return resultados;
+}
+
+async function generarInventarioHistorico({ fincaIds, edadHistorica }) {
+	const rows = await AlertaModel.detectarInventarioHistorico({
+		fincaIds,
+		edadHistorica,
+	});
+	const resultados = [];
+	for (const row of rows) {
+		const totalCintas = Number(row.total_cintas || 0);
+		const totalSaldo = Number(row.total_saldo || 0);
+		resultados.push(
+			await registrar(
+				{
+					empresa_id: row.empresa_id,
+					finca_id: row.finca_id,
+					tipo: 'inventario_historico_cintas',
+					severidad: totalCintas >= 10 || totalSaldo >= 1000 ? 'critica' : 'alta',
+					titulo: 'Inventario histórico por depurar',
+					mensaje: `${row.finca_nombre} tiene ${totalCintas} cinta(s) de ${edadHistorica}+ semanas con ${totalSaldo} racimos en campo. Revise cierre o ajuste de saldo.`,
+					entidad_tipo: 'inventario_campo',
+					entidad_id: `finca-${row.finca_id}`,
+					metadata: {
+						total_cintas: totalCintas,
+						total_saldo: totalSaldo,
+						edad_minima: Number(row.edad_minima || 0),
+						edad_maxima: Number(row.edad_maxima || 0),
+						edad_historica: edadHistorica,
+						muestras: Array.isArray(row.muestras) ? row.muestras.slice(0, 12) : [],
+					},
+					dedupe_key: `inventario_historico_cintas:${row.finca_id}:${edadHistorica}`,
 				},
 				row,
 			),
@@ -258,6 +303,13 @@ export const AlertaService = {
 			body.edad_critica_cinta || query.edad_critica_cinta,
 			DEFAULT_EDAD_CRITICA_CINTA,
 		);
+		const edadHistorica = Math.max(
+			edadCritica + 1,
+			parsePositiveInt(
+				body.edad_historica_cinta || query.edad_historica_cinta,
+				DEFAULT_EDAD_HISTORICA_CINTA,
+			),
+		);
 		const diasFumigacion = parsePositiveInt(
 			body.dias_fumigacion || query.dias_fumigacion,
 			DEFAULT_DIAS_FUMIGACION,
@@ -269,7 +321,15 @@ export const AlertaService = {
 
 		const resultadosPorTipo = {
 			enfunde_faltante: await generarFaltaEnfunde({ fecha, fincaIds }),
-			cinta_critica: await generarCintasCriticas({ fincaIds, edadCritica }),
+			cinta_critica: await generarCintasCriticas({
+				fincaIds,
+				edadCritica,
+				edadHistorica,
+			}),
+			inventario_historico_cintas: await generarInventarioHistorico({
+				fincaIds,
+				edadHistorica,
+			}),
 			fumigacion_vencida: await generarFumigacionVencida({
 				fincaIds,
 				diasMaximos: diasFumigacion,
@@ -284,6 +344,7 @@ export const AlertaService = {
 			fecha,
 			parametros: {
 				edad_critica_cinta: edadCritica,
+				edad_historica_cinta: edadHistorica,
 				dias_fumigacion: diasFumigacion,
 				dias_clima: diasClima,
 			},

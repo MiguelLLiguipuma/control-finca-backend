@@ -213,34 +213,90 @@ export const AlertaModel = {
 		return rows;
 	},
 
-	async detectarCintasCriticas({ fincaIds = [], edadCritica = 15 }) {
+	async detectarCintasCriticas({ fincaIds = [], edadCritica = 15, edadHistorica = 17 }) {
 		const { rows } = await query(
-			`SELECT
+			`WITH inventario AS (
+         SELECT
+           vbc.finca_id,
+           f.nombre AS finca_nombre,
+           f.empresa_id,
+           vbc.calendario_id,
+           vbc.semana_enfunde,
+           ce.anio,
+           vbc.color_cinta,
+           vbc.saldo_en_campo,
+           GREATEST(
+             0,
+             (EXTRACT(ISOYEAR FROM CURRENT_DATE)::int * 53 + EXTRACT(WEEK FROM CURRENT_DATE)::int)
+             - (ce.anio::int * 53 + vbc.semana_enfunde::int)
+           )::int AS edad_semanas
+         FROM vw_balance_campo vbc
+         JOIN fincas f ON f.id = vbc.finca_id
+         JOIN calendarios_enfunde ce ON ce.id = vbc.calendario_id
+         WHERE vbc.saldo_en_campo > 0
+           AND ($1::int[] IS NULL OR vbc.finca_id = ANY($1::int[]))
+       )
+       SELECT *
+       FROM inventario
+       WHERE edad_semanas >= $2
+         AND edad_semanas < $3
+       ORDER BY edad_semanas DESC, saldo_en_campo DESC`,
+			[
+				fincaIds.length ? fincaIds : null,
+				Number(edadCritica || 15),
+				Number(edadHistorica || 17),
+			],
+		);
+		return rows;
+	},
+
+	async detectarInventarioHistorico({ fincaIds = [], edadHistorica = 17 }) {
+		const { rows } = await query(
+			`WITH inventario AS (
+         SELECT
+           vbc.finca_id,
+           f.nombre AS finca_nombre,
+           f.empresa_id,
+           vbc.calendario_id,
+           vbc.semana_enfunde,
+           ce.anio,
+           vbc.color_cinta,
+           vbc.saldo_en_campo,
+           GREATEST(
+             0,
+             (EXTRACT(ISOYEAR FROM CURRENT_DATE)::int * 53 + EXTRACT(WEEK FROM CURRENT_DATE)::int)
+             - (ce.anio::int * 53 + vbc.semana_enfunde::int)
+           )::int AS edad_semanas
+         FROM vw_balance_campo vbc
+         JOIN fincas f ON f.id = vbc.finca_id
+         JOIN calendarios_enfunde ce ON ce.id = vbc.calendario_id
+         WHERE vbc.saldo_en_campo > 0
+           AND ($1::int[] IS NULL OR vbc.finca_id = ANY($1::int[]))
+       )
+       SELECT
          vbc.finca_id,
-         f.nombre AS finca_nombre,
-         f.empresa_id,
-         vbc.calendario_id,
-         vbc.semana_enfunde,
-         ce.anio,
-         vbc.color_cinta,
-         vbc.saldo_en_campo,
-         GREATEST(
-           0,
-           (EXTRACT(ISOYEAR FROM CURRENT_DATE)::int * 53 + EXTRACT(WEEK FROM CURRENT_DATE)::int)
-           - (ce.anio::int * 53 + vbc.semana_enfunde::int)
-         )::int AS edad_semanas
-       FROM vw_balance_campo vbc
-       JOIN fincas f ON f.id = vbc.finca_id
-       JOIN calendarios_enfunde ce ON ce.id = vbc.calendario_id
-       WHERE vbc.saldo_en_campo > 0
-         AND ($1::int[] IS NULL OR vbc.finca_id = ANY($1::int[]))
-         AND GREATEST(
-           0,
-           (EXTRACT(ISOYEAR FROM CURRENT_DATE)::int * 53 + EXTRACT(WEEK FROM CURRENT_DATE)::int)
-           - (ce.anio::int * 53 + vbc.semana_enfunde::int)
-         ) >= $2
-       ORDER BY edad_semanas DESC, vbc.saldo_en_campo DESC`,
-			[fincaIds.length ? fincaIds : null, Number(edadCritica || 15)],
+         vbc.finca_nombre,
+         vbc.empresa_id,
+         COUNT(*)::int AS total_cintas,
+         SUM(vbc.saldo_en_campo)::int AS total_saldo,
+         MAX(vbc.edad_semanas)::int AS edad_maxima,
+         MIN(vbc.edad_semanas)::int AS edad_minima,
+         jsonb_agg(
+           jsonb_build_object(
+             'calendario_id', vbc.calendario_id,
+             'semana_enfunde', vbc.semana_enfunde,
+             'anio', vbc.anio,
+             'color_cinta', vbc.color_cinta,
+             'saldo_en_campo', vbc.saldo_en_campo,
+             'edad_semanas', vbc.edad_semanas
+           )
+           ORDER BY vbc.edad_semanas DESC, vbc.saldo_en_campo DESC
+         ) FILTER (WHERE vbc.edad_semanas >= $2) AS muestras
+       FROM inventario vbc
+       WHERE vbc.edad_semanas >= $2
+       GROUP BY vbc.finca_id, vbc.finca_nombre, vbc.empresa_id
+       ORDER BY total_cintas DESC, total_saldo DESC`,
+			[fincaIds.length ? fincaIds : null, Number(edadHistorica || 17)],
 		);
 		return rows;
 	},
