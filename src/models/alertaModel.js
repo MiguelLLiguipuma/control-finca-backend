@@ -158,14 +158,25 @@ export const AlertaModel = {
          LEFT JOIN usuarios_roles ur ON ur.usuario_id = u.id
          LEFT JOIN roles r ON r.id = ur.rol_id
          WHERE u.activo = TRUE
-           AND ($2::int IS NULL OR u.empresa_id = $2)
        )
        SELECT DISTINCT ru.usuario_id
        FROM roles_usuario ru
        LEFT JOIN usuarios_fincas uf ON uf.usuario_id = ru.usuario_id
-       WHERE ru.rol IN ('ADMIN', 'ADMINISTRADOR', 'GERENTE')
+       WHERE (
+            ru.rol IN ('ADMIN', 'ADMINISTRADOR', 'GERENTE')
+            AND ($2::int IS NULL OR ru.empresa_id = $2 OR ru.empresa_id IS NULL)
+          )
           OR (
-            ru.rol IN ('SUPERVISOR', 'OPERADOR', 'OPERARIO', 'TRABAJADOR')
+            ru.rol = 'SUPERVISOR'
+            AND (
+              $2::int IS NULL
+              OR ru.empresa_id = $2
+              OR ru.empresa_id IS NULL
+              OR uf.finca_id = $1
+            )
+          )
+          OR (
+            ru.rol IN ('OPERADOR', 'OPERARIO', 'TRABAJADOR')
             AND uf.finca_id = $1
           )`,
 			[fincaId, empresaId || null],
@@ -210,22 +221,23 @@ export const AlertaModel = {
          f.empresa_id,
          vbc.calendario_id,
          vbc.semana_enfunde,
-         vbc.anio,
+         ce.anio,
          vbc.color_cinta,
          vbc.saldo_en_campo,
          GREATEST(
            0,
            (EXTRACT(ISOYEAR FROM CURRENT_DATE)::int * 53 + EXTRACT(WEEK FROM CURRENT_DATE)::int)
-           - (vbc.anio::int * 53 + vbc.semana_enfunde::int)
+           - (ce.anio::int * 53 + vbc.semana_enfunde::int)
          )::int AS edad_semanas
        FROM vw_balance_campo vbc
        JOIN fincas f ON f.id = vbc.finca_id
+       JOIN calendarios_enfunde ce ON ce.id = vbc.calendario_id
        WHERE vbc.saldo_en_campo > 0
          AND ($1::int[] IS NULL OR vbc.finca_id = ANY($1::int[]))
          AND GREATEST(
            0,
            (EXTRACT(ISOYEAR FROM CURRENT_DATE)::int * 53 + EXTRACT(WEEK FROM CURRENT_DATE)::int)
-           - (vbc.anio::int * 53 + vbc.semana_enfunde::int)
+           - (ce.anio::int * 53 + vbc.semana_enfunde::int)
          ) >= $2
        ORDER BY edad_semanas DESC, vbc.saldo_en_campo DESC`,
 			[fincaIds.length ? fincaIds : null, Number(edadCritica || 15)],
