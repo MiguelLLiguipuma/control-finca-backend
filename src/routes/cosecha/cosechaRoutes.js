@@ -3,6 +3,8 @@ import {
 	registrarCosecha,
 	getBalanceCampo,
 	getFechasOcupadas,
+	getInventarioHistorico,
+	cerrarInventarioHistorico,
 } from '../../controllers/cosecha/cosechaController.js';
 import {
 	obtenerPrediccionCosecha,
@@ -10,6 +12,7 @@ import {
 	obtenerProyeccionEmbarqueComparativa,
 } from '../../controllers/cosecha/prediccionController.js';
 import { verificarSesion } from '../../middlewares/auth.js';
+import { autorizarRoles } from '../../middlewares/authorizeRoles.js';
 
 const router = express.Router();
 
@@ -27,6 +30,12 @@ router.post('/registrar-liquidacion', registrarCosecha);
  */
 router.get('/balance/:fincaId', getBalanceCampo);
 router.get('/fechas-ocupadas', getFechasOcupadas);
+router.get('/inventario-historico', getInventarioHistorico);
+router.post(
+	'/inventario-historico/cerrar',
+	autorizarRoles('ADMIN', 'SUPERVISOR'),
+	cerrarInventarioHistorico,
+);
 
 /**
  * @route   GET /api/cosecha/prediccion/:finca_id

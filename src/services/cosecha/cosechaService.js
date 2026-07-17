@@ -19,6 +19,13 @@ function crearError(message, status = 400) {
 	return error;
 }
 
+function normalizeRole(role) {
+	const raw = String(role || '').trim().toUpperCase();
+	if (raw === 'TRABAJADOR' || raw === 'OPERARIO') return 'OPERADOR';
+	if (raw === 'ADMINISTRADOR' || raw === 'GERENTE') return 'ADMIN';
+	return raw;
+}
+
 function toEnteroNoNegativo(valor) {
 	const num = Number(valor);
 	if (!Number.isFinite(num)) return 0;
@@ -86,6 +93,15 @@ function normalizarDetalle(detalle) {
 		calendario_id: Number(detalle.calendario_id),
 		cantidad_racimos: toEnteroNoNegativo(detalle.cantidad_racimos),
 		cantidad_rechazo: toEnteroNoNegativo(detalle.cantidad_rechazo),
+	};
+}
+
+function normalizarAjusteInventario(item) {
+	return {
+		calendario_id: Number(item?.calendario_id),
+		cantidad_ajustada: item?.cantidad_ajustada == null
+			? null
+			: toEnteroNoNegativo(item.cantidad_ajustada),
 	};
 }
 
@@ -361,6 +377,139 @@ export const CosechaService = {
 		});
 		assertFincaInScope(Number(fincaId), scope);
 		return await CosechaModel.obtenerBalancePorFinca(fincaId);
+	},
+
+	obtenerInventarioHistorico: async (query = {}, contexto = {}) => {
+		const fincaId = Number(query.finca_id || query.fincaId || 0);
+		const edadHistorica = Number(query.edad_historica || query.edad_historica_cinta || 17);
+		const usuarioId = Number(contexto.usuarioIdSesion);
+		const scope = await resolveFincaScope({
+			rol: contexto.rolUsuario,
+			userId: usuarioId,
+		});
+
+		if (!Number.isInteger(fincaId) || fincaId <= 0) {
+			throw crearError('finca_id es requerido', 400);
+		}
+		assertFincaInScope(fincaId, scope);
+
+		return CosechaModel.obtenerInventarioHistorico({
+			fincaId,
+			edadHistorica: Number.isInteger(edadHistorica) && edadHistorica > 0
+				? edadHistorica
+				: 17,
+		});
+	},
+
+	cerrarInventarioHistorico: async (payload = {}, contexto = {}) => {
+		const fincaId = Number(payload.finca_id || 0);
+		const usuarioId = Number(contexto.usuarioIdSesion);
+		const role = normalizeRole(contexto.rolUsuario);
+		const motivo = String(payload.motivo || '').trim();
+		const items = Array.isArray(payload.items) ? payload.items : [];
+
+		if (role !== 'ADMIN' && role !== 'SUPERVISOR') {
+			throw crearError('No tiene permisos para cerrar inventario histórico', 403);
+		}
+		if (!Number.isInteger(fincaId) || fincaId <= 0) {
+			throw crearError('finca_id es requerido', 400);
+		}
+		if (!usuarioId) throw crearError('Sesión inválida: usuario no autenticado', 401);
+		if (motivo.length < 8) {
+			throw crearError('Debe ingresar un motivo de al menos 8 caracteres', 400);
+		}
+		if (!items.length) {
+			throw crearError('Debe seleccionar al menos una cinta para cerrar', 400);
+		}
+
+		const scope = await resolveFincaScope({
+			rol: contexto.rolUsuario,
+			userId: usuarioId,
+		});
+		assertFincaInScope(fincaId, scope);
+
+		const normalizados = items.map(normalizarAjusteInventario);
+		for (const item of normalizados) {
+			if (!Number.isInteger(item.calendario_id) || item.calendario_id <= 0) {
+				throw crearError('calendario_id inválido en items', 400);
+			}
+			if (
+				item.cantidad_ajustada !== null &&
+				(!Number.isInteger(item.cantidad_ajustada) || item.cantidad_ajustada <= 0)
+			) {
+				throw crearError('cantidad_ajustada debe ser mayor a cero', 400);
+			}
+		}
+
+		const client = await pool.connect();
+		try {
+			await client.query('BEGIN');
+			const ajustes = [];
+
+			for (const item of normalizados) {
+				const saldoRow = await CosechaModel.obtenerSaldoInventario(
+					{ fincaId, calendarioId: item.calendario_id },
+					client,
+				);
+				const saldoDisponible = Number(saldoRow?.saldo_en_campo || 0);
+				if (saldoDisponible <= 0) {
+					throw crearError(
+						`La cinta ${item.calendario_id} no tiene saldo disponible para ajustar`,
+						409,
+					);
+				}
+
+				const cantidad = item.cantidad_ajustada ?? saldoDisponible;
+				if (cantidad > saldoDisponible) {
+					throw crearError(
+						`La cinta ${item.calendario_id} solo tiene ${saldoDisponible} racimos disponibles`,
+						409,
+					);
+				}
+
+				const ajuste = await CosechaModel.insertarAjusteInventario(
+					{
+						finca_id: fincaId,
+						calendario_id: item.calendario_id,
+						cantidad_ajustada: cantidad,
+						tipo: 'cierre_historico',
+						motivo,
+						metadata: {
+							saldo_disponible_antes: saldoDisponible,
+							origen: 'cierre_inventario_historico',
+						},
+						usuario_id: usuarioId,
+					},
+					client,
+				);
+				ajustes.push(ajuste);
+			}
+
+			await client.query(
+				`UPDATE alertas_operativas
+         SET estado = 'resuelta',
+             resuelta_en = NOW()
+         WHERE finca_id = $1
+           AND tipo = 'inventario_historico_cintas'
+           AND estado <> 'resuelta'`,
+				[fincaId],
+			);
+
+			await client.query('COMMIT');
+			return {
+				total_ajustes: ajustes.length,
+				total_racimos_ajustados: ajustes.reduce(
+					(acc, item) => acc + Number(item.cantidad_ajustada || 0),
+					0,
+				),
+				ajustes,
+			};
+		} catch (error) {
+			await client.query('ROLLBACK');
+			throw error;
+		} finally {
+			client.release();
+		}
 	},
 
 	obtenerFechasOcupadas: async (query = {}, contexto = {}) => {

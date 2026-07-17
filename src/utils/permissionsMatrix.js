@@ -45,6 +45,16 @@ export const PERMISSIONS_MATRIX = [
 	},
 	{
 		method: 'GET',
+		path: '/api/cosecha/inventario-historico',
+		roles: ['ADMIN', 'SUPERVISOR', 'OPERADOR'],
+	},
+	{
+		method: 'POST',
+		path: '/api/cosecha/inventario-historico/cerrar',
+		roles: ['ADMIN', 'SUPERVISOR'],
+	},
+	{
+		method: 'GET',
 		path: '/api/cosecha/prediccion-multi',
 		roles: ['ADMIN', 'SUPERVISOR', 'OPERADOR'],
 	},
