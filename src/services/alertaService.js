@@ -77,10 +77,16 @@ function ensureCanManageConfig(user) {
 }
 
 function normalizePhone(value) {
-	const phone = String(value || '').replace(/[^\d+]/g, '').trim();
-	if (!phone) return null;
-	if (phone.startsWith('+')) return phone.slice(0, 20);
-	return phone.slice(0, 18);
+	const raw = String(value || '').replace(/[^\d+]/g, '').trim();
+	if (!raw) return null;
+	if (raw.startsWith('+')) return raw.slice(0, 20);
+
+	const digits = raw.replace(/\D/g, '');
+	if (digits.startsWith('593')) return `+${digits}`.slice(0, 20);
+	if (digits.startsWith('09') && digits.length === 10) {
+		return `+593${digits.slice(1)}`;
+	}
+	return digits.slice(0, 18);
 }
 
 function normalizeTipos(input) {
