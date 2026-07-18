@@ -64,6 +64,36 @@ export const AlertaController = {
 		}
 	},
 
+	async listarWhatsappPendientes(req, res) {
+		try {
+			const data = await AlertaService.listarWhatsappPendientes({
+				user: req.user,
+				query: req.query,
+			});
+			return res.json({ success: true, data });
+		} catch (error) {
+			return manejarError(res, req, error, 'No fue posible listar mensajes WhatsApp');
+		}
+	},
+
+	async marcarWhatsappEnviado(req, res) {
+		try {
+			const data = await AlertaService.marcarWhatsappEnviado({
+				user: req.user,
+				destinatarioId: req.params.destinatarioId,
+			});
+			if (!data) {
+				return res.status(404).json({
+					success: false,
+					message: 'Destinatario WhatsApp no encontrado',
+				});
+			}
+			return res.json({ success: true, data });
+		} catch (error) {
+			return manejarError(res, req, error, 'No fue posible marcar WhatsApp como enviado');
+		}
+	},
+
 	async generar(req, res) {
 		try {
 			const data = await AlertaService.generar({

@@ -311,6 +311,81 @@ export const AlertaModel = {
 		return rows[0] || null;
 	},
 
+	async listarWhatsappPendientes({ fincaIds = [], estado = 'pendiente', limit = 50 }) {
+		const estados = Array.isArray(estado)
+			? estado
+			: String(estado || 'pendiente')
+				.split(',')
+				.map((x) => x.trim())
+				.filter(Boolean);
+		const { rows } = await query(
+			`SELECT
+         d.id AS destinatario_id,
+         d.alerta_id,
+         d.usuario_id,
+         u.nombre AS usuario_nombre,
+         d.telefono_whatsapp,
+         d.estado,
+         d.creado_en,
+         d.enviado_en,
+         d.error_envio,
+         a.empresa_id,
+         a.finca_id,
+         f.nombre AS finca_nombre,
+         a.tipo,
+         a.severidad,
+         a.titulo,
+         a.mensaje,
+         a.detectada_en
+       FROM alertas_destinatarios d
+       JOIN alertas_operativas a ON a.id = d.alerta_id
+       LEFT JOIN usuarios u ON u.id = d.usuario_id
+       LEFT JOIN fincas f ON f.id = a.finca_id
+       WHERE d.canal = 'whatsapp'
+         AND ($1::text[] IS NULL OR d.estado = ANY($1::text[]))
+         AND ($2::int[] IS NULL OR a.finca_id = ANY($2::int[]))
+         AND a.estado <> 'resuelta'
+       ORDER BY
+         CASE a.severidad
+           WHEN 'critica' THEN 1
+           WHEN 'alta' THEN 2
+           WHEN 'media' THEN 3
+           ELSE 4
+         END,
+         d.creado_en DESC
+       LIMIT $3`,
+			[estados.length ? estados : null, fincaIds.length ? fincaIds : null, cleanLimit(limit)],
+		);
+		return rows;
+	},
+
+	async marcarWhatsappEnviado({ destinatarioId, fincaIds = [] }) {
+		const { rows } = await query(
+			`UPDATE alertas_destinatarios d
+       SET estado = 'enviado',
+           enviado_en = NOW(),
+           error_envio = NULL
+       FROM alertas_operativas a
+       WHERE d.id = $1
+         AND d.alerta_id = a.id
+         AND d.canal = 'whatsapp'
+         AND ($2::int[] IS NULL OR a.finca_id = ANY($2::int[]))
+       RETURNING d.*, a.id AS alerta_operativa_id`,
+			[destinatarioId, fincaIds.length ? fincaIds : null],
+		);
+		const updated = rows[0] || null;
+		if (!updated) return null;
+
+		await query(
+			`UPDATE alertas_operativas
+       SET estado = CASE WHEN estado = 'pendiente' THEN 'enviada' ELSE estado END,
+           enviada_en = COALESCE(enviada_en, NOW())
+       WHERE id = $1`,
+			[updated.alerta_operativa_id],
+		);
+		return updated;
+	},
+
 	async obtenerFincas({ fincaIds = [], empresaId = null }) {
 		const { rows } = await query(
 			`SELECT id, nombre, empresa_id

@@ -14,6 +14,16 @@ router.get(
 	autorizarRoles('ADMIN', 'SUPERVISOR'),
 	AlertaController.listarContactos,
 );
+router.get(
+	'/whatsapp/pendientes',
+	autorizarRoles('ADMIN', 'SUPERVISOR'),
+	AlertaController.listarWhatsappPendientes,
+);
+router.patch(
+	'/whatsapp/:destinatarioId/enviado',
+	autorizarRoles('ADMIN', 'SUPERVISOR'),
+	AlertaController.marcarWhatsappEnviado,
+);
 router.put(
 	'/contactos/:usuarioId',
 	autorizarRoles('ADMIN', 'SUPERVISOR'),

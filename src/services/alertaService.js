@@ -102,6 +102,55 @@ function normalizeSeveridad(value) {
 	return SEVERIDADES.includes(normalized) ? normalized : 'baja';
 }
 
+function cleanWhatsappDigits(value) {
+	return String(value || '').replace(/\D/g, '');
+}
+
+function formatAlertDate(value) {
+	const date = dayjs(value).tz(DEFAULT_TZ);
+	return date.isValid() ? date.format('DD/MM/YYYY HH:mm') : '';
+}
+
+function buildWhatsappMessage(row) {
+	const finca = row.finca_nombre ? `\nFinca: ${row.finca_nombre}` : '';
+	const fecha = formatAlertDate(row.detectada_en);
+	const detectada = fecha ? `\nDetectada: ${fecha}` : '';
+	return [
+		'Control Finca - Alerta operativa',
+		`Severidad: ${String(row.severidad || '').toUpperCase()}`,
+		`Tipo: ${row.tipo}`,
+		`Titulo: ${row.titulo}`,
+		`${row.mensaje}${finca}${detectada}`,
+	].join('\n');
+}
+
+function mapWhatsappItem(row) {
+	const mensajeWhatsapp = buildWhatsappMessage(row);
+	const phone = cleanWhatsappDigits(row.telefono_whatsapp);
+	return {
+		destinatario_id: Number(row.destinatario_id),
+		alerta_id: Number(row.alerta_id),
+		usuario_id: Number(row.usuario_id),
+		usuario_nombre: row.usuario_nombre || null,
+		telefono_whatsapp: row.telefono_whatsapp,
+		estado: row.estado,
+		finca_id: row.finca_id ? Number(row.finca_id) : null,
+		finca_nombre: row.finca_nombre || null,
+		tipo: row.tipo,
+		severidad: row.severidad,
+		titulo: row.titulo,
+		mensaje: row.mensaje,
+		detectada_en: row.detectada_en,
+		creado_en: row.creado_en,
+		enviado_en: row.enviado_en,
+		error_envio: row.error_envio,
+		mensaje_whatsapp: mensajeWhatsapp,
+		whatsapp_url: phone
+			? `https://wa.me/${phone}?text=${encodeURIComponent(mensajeWhatsapp)}`
+			: null,
+	};
+}
+
 async function resolveScopedFincaIds(user, requested) {
 	const scope = await resolveFincaScope({
 		rol: user?.rol,
@@ -367,6 +416,34 @@ export const AlertaService = {
 			severidadMinima: normalizeSeveridad(body.severidad_minima),
 		});
 		return contacto;
+	},
+
+	async listarWhatsappPendientes({ user, query = {} }) {
+		ensureCanManageConfig(user);
+		const requested = parseFincaIds(query?.finca_ids || query?.finca_id);
+		const fincaIds = await resolveScopedFincaIds(user, requested);
+		const estado = query?.estado || 'pendiente,fallido';
+		const rows = await AlertaModel.listarWhatsappPendientes({
+			fincaIds,
+			estado,
+			limit: query?.limit,
+		});
+		return rows.map(mapWhatsappItem);
+	},
+
+	async marcarWhatsappEnviado({ user, destinatarioId }) {
+		ensureCanManageConfig(user);
+		const id = Number(destinatarioId);
+		if (!Number.isInteger(id) || id <= 0) {
+			throw crearError('destinatario_id invalido', 400);
+		}
+		const fincaIds = await resolveScopedFincaIds(user, []);
+		const updated = await AlertaModel.marcarWhatsappEnviado({
+			destinatarioId: id,
+			fincaIds,
+		});
+		if (!updated) return null;
+		return updated;
 	},
 
 	async generar({ user, body = {}, query = {} }) {
