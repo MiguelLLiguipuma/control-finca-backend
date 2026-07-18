@@ -146,7 +146,7 @@ export const AlertaModel = {
 		}
 	},
 
-	async destinatariosParaFinca({ fincaId, empresaId }) {
+	async destinatariosParaFinca({ fincaId, empresaId, tipo, severidad }) {
 		const { rows } = await query(
 			`WITH roles_usuario AS (
          SELECT
@@ -158,30 +158,157 @@ export const AlertaModel = {
          LEFT JOIN usuarios_roles ur ON ur.usuario_id = u.id
          LEFT JOIN roles r ON r.id = ur.rol_id
          WHERE u.activo = TRUE
-       )
-       SELECT DISTINCT ru.usuario_id
-       FROM roles_usuario ru
-       LEFT JOIN usuarios_fincas uf ON uf.usuario_id = ru.usuario_id
-       WHERE (
-            ru.rol IN ('ADMIN', 'ADMINISTRADOR', 'GERENTE')
-            AND ($2::int IS NULL OR ru.empresa_id = $2 OR ru.empresa_id IS NULL)
-          )
-          OR (
-            ru.rol = 'SUPERVISOR'
-            AND (
-              $2::int IS NULL
-              OR ru.empresa_id = $2
-              OR ru.empresa_id IS NULL
-              OR uf.finca_id = $1
+       ),
+       candidatos AS (
+         SELECT DISTINCT
+           ru.usuario_id,
+           ac.telefono_whatsapp,
+           COALESCE(ac.in_app_activo, TRUE) AS in_app_activo,
+           COALESCE(ac.whatsapp_activo, FALSE) AS whatsapp_activo,
+           COALESCE(ac.tipos, ARRAY[]::text[]) AS tipos,
+           COALESCE(ac.severidad_minima, 'baja') AS severidad_minima
+         FROM roles_usuario ru
+         LEFT JOIN usuarios_fincas uf ON uf.usuario_id = ru.usuario_id
+         LEFT JOIN alertas_contactos ac ON ac.usuario_id = ru.usuario_id
+         WHERE (
+              ru.rol IN ('ADMIN', 'ADMINISTRADOR', 'GERENTE')
+              AND ($2::int IS NULL OR ru.empresa_id = $2 OR ru.empresa_id IS NULL)
             )
-          )
-          OR (
-            ru.rol IN ('OPERADOR', 'OPERARIO', 'TRABAJADOR')
-            AND uf.finca_id = $1
-          )`,
-			[fincaId, empresaId || null],
+            OR (
+              ru.rol = 'SUPERVISOR'
+              AND (
+                $2::int IS NULL
+                OR ru.empresa_id = $2
+                OR ru.empresa_id IS NULL
+                OR uf.finca_id = $1
+              )
+            )
+            OR (
+              ru.rol IN ('OPERADOR', 'OPERARIO', 'TRABAJADOR')
+              AND uf.finca_id = $1
+            )
+       ),
+       elegibles AS (
+         SELECT *
+         FROM candidatos
+         WHERE (
+             cardinality(tipos) = 0
+             OR $3::text = ANY(tipos)
+           )
+           AND CASE severidad_minima
+             WHEN 'critica' THEN 4
+             WHEN 'alta' THEN 3
+             WHEN 'media' THEN 2
+             ELSE 1
+           END <= CASE $4::text
+             WHEN 'critica' THEN 4
+             WHEN 'alta' THEN 3
+             WHEN 'media' THEN 2
+             ELSE 1
+           END
+       )
+       SELECT usuario_id, 'in_app' AS canal, NULL::text AS telefono_whatsapp
+       FROM elegibles
+       WHERE in_app_activo = TRUE
+       UNION ALL
+       SELECT usuario_id, 'whatsapp' AS canal, telefono_whatsapp
+       FROM elegibles
+       WHERE whatsapp_activo = TRUE
+         AND NULLIF(BTRIM(telefono_whatsapp), '') IS NOT NULL`,
+			[fincaId, empresaId || null, tipo || '', severidad || 'media'],
 		);
-		return rows.map((r) => ({ usuario_id: Number(r.usuario_id), canal: 'in_app' }));
+		return rows.map((r) => ({
+			usuario_id: Number(r.usuario_id),
+			canal: r.canal || 'in_app',
+			telefono_whatsapp: r.telefono_whatsapp || null,
+		}));
+	},
+
+	async listarContactos({ empresaId = null }) {
+		const { rows } = await query(
+			`SELECT
+         u.id AS usuario_id,
+         u.nombre,
+         u.email,
+         u.empresa_id,
+         u.activo AS usuario_activo,
+         r.nombre AS rol,
+         ac.id AS contacto_id,
+         ac.telefono_whatsapp,
+         COALESCE(ac.whatsapp_activo, FALSE) AS whatsapp_activo,
+         COALESCE(ac.in_app_activo, TRUE) AS in_app_activo,
+         COALESCE(ac.tipos, ARRAY[
+           'enfunde_faltante',
+           'cinta_critica',
+           'inventario_historico_cintas',
+           'fumigacion_vencida',
+           'clima_desactualizado'
+         ]::text[]) AS tipos,
+         COALESCE(ac.severidad_minima, 'baja') AS severidad_minima,
+         ac.actualizado_en
+       FROM usuarios u
+       LEFT JOIN usuarios_roles ur ON ur.usuario_id = u.id
+       LEFT JOIN roles r ON r.id = ur.rol_id
+       LEFT JOIN alertas_contactos ac ON ac.usuario_id = u.id
+       WHERE u.activo = TRUE
+         AND ($1::int IS NULL OR u.empresa_id = $1 OR u.empresa_id IS NULL)
+       ORDER BY
+         CASE UPPER(COALESCE(r.nombre, ''))
+           WHEN 'ADMIN' THEN 1
+           WHEN 'ADMINISTRADOR' THEN 1
+           WHEN 'GERENTE' THEN 1
+           WHEN 'SUPERVISOR' THEN 2
+           ELSE 3
+         END,
+         u.nombre`,
+			[empresaId || null],
+		);
+		return rows;
+	},
+
+	async upsertContacto({ usuarioId, empresaId, telefonoWhatsapp, whatsappActivo, inAppActivo, tipos, severidadMinima }) {
+		const { rows } = await query(
+			`INSERT INTO alertas_contactos (
+         usuario_id,
+         empresa_id,
+         telefono_whatsapp,
+         whatsapp_activo,
+         in_app_activo,
+         tipos,
+         severidad_minima
+       )
+       VALUES ($1,$2,$3,$4,$5,$6::text[],$7)
+       ON CONFLICT (usuario_id)
+       DO UPDATE SET
+         empresa_id = EXCLUDED.empresa_id,
+         telefono_whatsapp = EXCLUDED.telefono_whatsapp,
+         whatsapp_activo = EXCLUDED.whatsapp_activo,
+         in_app_activo = EXCLUDED.in_app_activo,
+         tipos = EXCLUDED.tipos,
+         severidad_minima = EXCLUDED.severidad_minima
+       RETURNING *`,
+			[
+				usuarioId,
+				empresaId || null,
+				telefonoWhatsapp || null,
+				Boolean(whatsappActivo),
+				inAppActivo !== false,
+				tipos,
+				severidadMinima,
+			],
+		);
+		return rows[0] || null;
+	},
+
+	async usuarioEmpresa(usuarioId) {
+		const { rows } = await query(
+			`SELECT id, empresa_id
+       FROM usuarios
+       WHERE id = $1
+       LIMIT 1`,
+			[usuarioId],
+		);
+		return rows[0] || null;
 	},
 
 	async obtenerFincas({ fincaIds = [], empresaId = null }) {

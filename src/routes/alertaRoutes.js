@@ -9,6 +9,16 @@ router.use(verificarSesion);
 
 router.get('/', AlertaController.listar);
 router.get('/resumen', AlertaController.resumen);
+router.get(
+	'/contactos',
+	autorizarRoles('ADMIN', 'SUPERVISOR'),
+	AlertaController.listarContactos,
+);
+router.put(
+	'/contactos/:usuarioId',
+	autorizarRoles('ADMIN', 'SUPERVISOR'),
+	AlertaController.guardarContacto,
+);
 router.post(
 	'/generar',
 	autorizarRoles('ADMIN', 'SUPERVISOR'),

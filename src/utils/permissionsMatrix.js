@@ -62,6 +62,8 @@ export const PERMISSIONS_MATRIX = [
 	{ method: 'POST', path: '/api/clima/sync', roles: ['ADMIN', 'SUPERVISOR'] },
 	{ method: 'GET', path: '/api/alertas', roles: ['ADMIN', 'SUPERVISOR', 'OPERADOR'] },
 	{ method: 'GET', path: '/api/alertas/resumen', roles: ['ADMIN', 'SUPERVISOR', 'OPERADOR'] },
+	{ method: 'GET', path: '/api/alertas/contactos', roles: ['ADMIN', 'SUPERVISOR'] },
+	{ method: 'PUT', path: '/api/alertas/contactos/:usuarioId', roles: ['ADMIN', 'SUPERVISOR'] },
 	{ method: 'POST', path: '/api/alertas/generar', roles: ['ADMIN', 'SUPERVISOR'] },
 	{ method: 'PATCH', path: '/api/alertas/:id/leida', roles: ['ADMIN', 'SUPERVISOR', 'OPERADOR'] },
 	{ method: 'PATCH', path: '/api/alertas/:id/resolver', roles: ['ADMIN', 'SUPERVISOR'] },

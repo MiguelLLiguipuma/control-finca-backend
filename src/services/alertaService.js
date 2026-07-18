@@ -17,6 +17,14 @@ const DEFAULT_EDAD_HISTORICA_CINTA = Number(
 );
 const DEFAULT_DIAS_FUMIGACION = Number(process.env.ALERTA_FUMIGACION_DIAS_MAX || 14);
 const DEFAULT_DIAS_CLIMA = Number(process.env.ALERTA_CLIMA_DIAS_MAX || 1);
+const TIPOS_ALERTA = [
+	'enfunde_faltante',
+	'cinta_critica',
+	'inventario_historico_cintas',
+	'fumigacion_vencida',
+	'clima_desactualizado',
+];
+const SEVERIDADES = ['baja', 'media', 'alta', 'critica'];
 
 function crearError(message, status = 400) {
 	const error = new Error(message);
@@ -61,6 +69,33 @@ function parsePositiveInt(value, fallback) {
 	return n;
 }
 
+function ensureCanManageConfig(user) {
+	const role = normalizeRole(user?.rol);
+	if (role !== 'ADMIN' && role !== 'SUPERVISOR') {
+		throw crearError('No tiene permisos para configurar alertas', 403);
+	}
+}
+
+function normalizePhone(value) {
+	const phone = String(value || '').replace(/[^\d+]/g, '').trim();
+	if (!phone) return null;
+	if (phone.startsWith('+')) return phone.slice(0, 20);
+	return phone.slice(0, 18);
+}
+
+function normalizeTipos(input) {
+	const values = Array.isArray(input) ? input : TIPOS_ALERTA;
+	const normalized = Array.from(
+		new Set(values.map((x) => String(x || '').trim()).filter((x) => TIPOS_ALERTA.includes(x))),
+	);
+	return normalized.length ? normalized : TIPOS_ALERTA;
+}
+
+function normalizeSeveridad(value) {
+	const normalized = String(value || 'baja').trim().toLowerCase();
+	return SEVERIDADES.includes(normalized) ? normalized : 'baja';
+}
+
 async function resolveScopedFincaIds(user, requested) {
 	const scope = await resolveFincaScope({
 		rol: user?.rol,
@@ -69,15 +104,17 @@ async function resolveScopedFincaIds(user, requested) {
 	return applyFincaScopeToRequestedIds(requested, scope);
 }
 
-async function destinatarios(row) {
+async function destinatarios(row, alerta) {
 	return AlertaModel.destinatariosParaFinca({
 		fincaId: Number(row.finca_id),
 		empresaId: Number(row.empresa_id || 0) || null,
+		tipo: alerta?.tipo,
+		severidad: alerta?.severidad,
 	});
 }
 
 async function registrar(alerta, row) {
-	const destinos = await destinatarios(row);
+	const destinos = await destinatarios(row, alerta);
 	if (!destinos.length) return { creada: false, alerta: null, omitida: 'sin_destinatarios' };
 	return AlertaModel.insertarAlerta(alerta, destinos);
 }
@@ -288,6 +325,42 @@ export const AlertaService = {
 		const requested = parseFincaIds(query?.finca_ids || query?.finca_id);
 		const fincaIds = await resolveScopedFincaIds(user, requested);
 		return AlertaModel.resumen({ fincaIds });
+	},
+
+	async listarContactos({ user }) {
+		ensureCanManageConfig(user);
+		const role = normalizeRole(user?.rol);
+		const empresaId = role === 'ADMIN' ? Number(user?.empresa_id || 0) || null : null;
+		return AlertaModel.listarContactos({ empresaId });
+	},
+
+	async guardarContacto({ user, usuarioId, body = {} }) {
+		ensureCanManageConfig(user);
+		const id = Number(usuarioId);
+		if (!Number.isInteger(id) || id <= 0) throw crearError('usuario_id invalido', 400);
+
+		const usuario = await AlertaModel.usuarioEmpresa(id);
+		if (!usuario) throw crearError('Usuario no encontrado', 404);
+
+		const role = normalizeRole(user?.rol);
+		const empresaUsuario = Number(usuario.empresa_id || 0) || null;
+		const empresaSesion = Number(user?.empresa_id || 0) || null;
+		if (role === 'ADMIN' && empresaSesion && empresaUsuario && empresaSesion !== empresaUsuario) {
+			throw crearError('No puede configurar usuarios de otra empresa', 403);
+		}
+
+		const telefonoWhatsapp = normalizePhone(body.telefono_whatsapp);
+		const whatsappActivo = Boolean(body.whatsapp_activo) && Boolean(telefonoWhatsapp);
+		const contacto = await AlertaModel.upsertContacto({
+			usuarioId: id,
+			empresaId: empresaUsuario,
+			telefonoWhatsapp,
+			whatsappActivo,
+			inAppActivo: body.in_app_activo !== false,
+			tipos: normalizeTipos(body.tipos),
+			severidadMinima: normalizeSeveridad(body.severidad_minima),
+		});
+		return contacto;
 	},
 
 	async generar({ user, body = {}, query = {} }) {

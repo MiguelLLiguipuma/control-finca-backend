@@ -40,6 +40,30 @@ export const AlertaController = {
 		}
 	},
 
+	async listarContactos(req, res) {
+		try {
+			const data = await AlertaService.listarContactos({
+				user: req.user,
+			});
+			return res.json({ success: true, data });
+		} catch (error) {
+			return manejarError(res, req, error, 'No fue posible listar contactos de alerta');
+		}
+	},
+
+	async guardarContacto(req, res) {
+		try {
+			const data = await AlertaService.guardarContacto({
+				user: req.user,
+				usuarioId: req.params.usuarioId,
+				body: req.body,
+			});
+			return res.json({ success: true, data });
+		} catch (error) {
+			return manejarError(res, req, error, 'No fue posible guardar el contacto de alerta');
+		}
+	},
+
 	async generar(req, res) {
 		try {
 			const data = await AlertaService.generar({
