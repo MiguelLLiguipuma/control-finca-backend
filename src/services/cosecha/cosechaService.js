@@ -89,11 +89,13 @@ function esUuid(val) {
 }
 
 function normalizarDetalle(detalle) {
-	return {
-		calendario_id: Number(detalle.calendario_id),
-		cantidad_racimos: toEnteroNoNegativo(detalle.cantidad_racimos),
-		cantidad_rechazo: toEnteroNoNegativo(detalle.cantidad_rechazo),
-	};
+	if (!detalle || typeof detalle !== 'object') throw crearError('Detalle de cosecha invalido', 400);
+	const buenos = Number(detalle.cantidad_racimos ?? 0);
+	const rechazo = Number(detalle.cantidad_rechazo ?? 0);
+	if (!Number.isSafeInteger(buenos) || buenos < 0 || !Number.isSafeInteger(rechazo) || rechazo < 0) {
+		throw crearError('Las cantidades deben ser enteros no negativos', 400);
+	}
+	return { calendario_id: Number(detalle.calendario_id), cantidad_racimos: buenos, cantidad_rechazo: rechazo };
 }
 
 function normalizarAjusteInventario(item) {
@@ -172,11 +174,9 @@ async function limpiarIdempotenciaAntiguaSiAplica() {
 	);
 }
 
-async function reservarIdempotencia(idLocal, payloadHash) {
-	await asegurarTablaIdempotencia();
-	await limpiarIdempotenciaAntiguaSiAplica();
+async function reservarIdempotencia(client, idLocal, payloadHash) {
 
-	const insertRes = await pool.query(
+	const insertRes = await client.query(
 		`INSERT INTO cosecha_idempotencia (id_local, payload_hash, status)
      VALUES ($1, $2, 'processing')
      ON CONFLICT (id_local) DO NOTHING
@@ -188,7 +188,7 @@ async function reservarIdempotencia(idLocal, payloadHash) {
 		return { reservar: true };
 	}
 
-	const existenteRes = await pool.query(
+	const existenteRes = await client.query(
 		`SELECT id_local, payload_hash, status, response_json
      FROM cosecha_idempotencia
      WHERE id_local = $1`,
@@ -220,7 +220,7 @@ async function reservarIdempotencia(idLocal, payloadHash) {
 		throw crearError('La liquidacion ya esta en procesamiento', 409);
 	}
 
-	const retryRes = await pool.query(
+	const retryRes = await client.query(
 		`UPDATE cosecha_idempotencia
      SET status = 'processing',
          error_message = NULL,
@@ -239,9 +239,9 @@ async function reservarIdempotencia(idLocal, payloadHash) {
 	return { reservar: true };
 }
 
-async function marcarIdempotenciaCompletada(idLocal, responseObj) {
+async function marcarIdempotenciaCompletada(client, idLocal, responseObj) {
 	if (!idLocal) return;
-	await pool.query(
+	await client.query(
 		`UPDATE cosecha_idempotencia
      SET status = 'completed',
          response_json = $2::jsonb,
@@ -250,22 +250,6 @@ async function marcarIdempotenciaCompletada(idLocal, responseObj) {
      WHERE id_local = $1`,
 		[idLocal, JSON.stringify(responseObj || {})],
 	);
-}
-
-async function marcarIdempotenciaFallida(idLocal, errorMessage) {
-	if (!idLocal) return;
-	try {
-		await pool.query(
-			`UPDATE cosecha_idempotencia
-       SET status = 'failed',
-           error_message = $2,
-           updated_at = NOW()
-       WHERE id_local = $1`,
-			[idLocal, errorMessage || 'Error desconocido'],
-		);
-	} catch {
-		// No interrumpimos el flujo por fallo de trazabilidad
-	}
 }
 
 export const CosechaService = {
@@ -279,7 +263,7 @@ export const CosechaService = {
 			userId: usuarioId,
 		});
 
-		if (!fincaId) throw crearError('finca_id es requerido', 400);
+		if (!Number.isInteger(fincaId) || fincaId <= 0) throw crearError('finca_id debe ser un entero positivo', 400);
 		if (!usuarioId) throw crearError('Sesión inválida: usuario no autenticado', 401);
 		assertFincaInScope(fincaId, scope);
 		if (!fechaIso || !validarFechaISO(fechaIso)) {
@@ -310,59 +294,41 @@ export const CosechaService = {
 			}
 		}
 
-			const payloadCanonico = {
-				finca_id: fincaId,
-				fecha: fechaIso,
-				usuario_id: usuarioId,
-				detalles: detallesOrdenados,
-			};
-			const payloadHash = hashPayload(payloadCanonico);
+		const payloadCanonico = {
+			finca_id: fincaId,
+			fecha: fechaIso,
+			usuario_id: usuarioId,
+			detalles: detallesOrdenados,
+		};
+		const payloadHash = hashPayload(payloadCanonico);
 
 		if (id_local) {
-			const estadoIdempotencia = await reservarIdempotencia(
-				id_local,
-				payloadHash,
-			);
-
-			if (estadoIdempotencia.duplicated) {
-				return {
-					duplicated: true,
-					id_local,
-					...(estadoIdempotencia.response || { registros: [] }),
-				};
-			}
+			await asegurarTablaIdempotencia();
+			await limpiarIdempotenciaAntiguaSiAplica();
 		}
 
-			const client = await pool.connect();
-			try {
-				await client.query('BEGIN');
+		const client = await pool.connect();
+		try {
+			await client.query('BEGIN');
+			// La reserva y su respuesta se confirman junto con la cosecha.
+			if (id_local) {
+				const estado = await reservarIdempotencia(client, id_local, payloadHash);
+				if (estado.duplicated) {
+					await client.query('COMMIT');
+					return { duplicated: true, id_local, ...(estado.response || { registros: [] }) };
+				}
+			}
 
-				const registros = await CosechaModel.insertarCosechaLoteAtomic(
-					{
-						finca_id: fincaId,
-						usuario_id: usuarioId,
-						fecha: fechaIso,
-						detalles: detallesOrdenados,
-					},
-					client,
-				);
-
-				await client.query('COMMIT');
-
-				const responseObj = {
-					registros,
-					total: registros.length,
-				};
-				await marcarIdempotenciaCompletada(id_local, responseObj);
-
-				return {
-					duplicated: false,
-					id_local,
-					...responseObj,
-				};
-			} catch (error) {
-			await client.query('ROLLBACK');
-			await marcarIdempotenciaFallida(id_local, error.message);
+			const registros = await CosechaModel.insertarCosechaLoteAtomic(
+				{ finca_id: fincaId, usuario_id: usuarioId, fecha: fechaIso, detalles: detallesOrdenados },
+				client,
+			);
+			const responseObj = { registros, total: registros.length };
+			await marcarIdempotenciaCompletada(client, id_local, responseObj);
+			await client.query('COMMIT');
+			return { duplicated: false, id_local, ...responseObj };
+		} catch (error) {
+			await client.query('ROLLBACK').catch(() => {});
 			throw error;
 		} finally {
 			client.release();
