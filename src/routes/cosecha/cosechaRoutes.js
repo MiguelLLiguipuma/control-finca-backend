@@ -13,10 +13,18 @@ import {
 } from '../../controllers/cosecha/prediccionController.js';
 import { verificarSesion } from '../../middlewares/auth.js';
 import { autorizarRoles } from '../../middlewares/authorizeRoles.js';
+import { createRateLimit } from '../../middlewares/rateLimitSimple.js';
+import { detectarFotoRacimos } from '../../controllers/cosecha/deteccionRacimosController.js';
 
 const router = express.Router();
 
 router.use(verificarSesion);
+
+router.post('/detectar-racimos',
+	autorizarRoles('ADMIN', 'SUPERVISOR', 'OPERADOR'),
+	createRateLimit({ windowMs: 60000, max: 5, keyFn: (req) => `conteo-foto:${req.user.id}`, message: 'Espere un minuto antes de analizar otra foto.' }),
+	detectarFotoRacimos,
+);
 
 /**
  * @route   POST /api/cosecha/registrar-liquidacion

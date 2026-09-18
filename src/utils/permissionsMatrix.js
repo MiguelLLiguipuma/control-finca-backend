@@ -1,4 +1,5 @@
 export const PERMISSIONS_MATRIX = [
+	{ method: 'POST', path: '/api/cosecha/detectar-racimos', roles: ['ADMIN', 'SUPERVISOR', 'OPERADOR'] },
 	{ method: 'GET', path: '/api/empresas', roles: ['ADMIN', 'SUPERVISOR', 'OPERADOR'] },
 	{ method: 'POST', path: '/api/empresas', roles: ['ADMIN'] },
 	{ method: 'PUT', path: '/api/empresas/:id', roles: ['ADMIN'] },
