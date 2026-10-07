@@ -60,6 +60,7 @@ export const PERMISSIONS_MATRIX = [
 		roles: ['ADMIN', 'SUPERVISOR', 'OPERADOR'],
 	},
 	{ method: 'GET', path: '/api/clima/status', roles: ['ADMIN', 'SUPERVISOR', 'OPERADOR'] },
+	{ method: 'GET', path: '/api/clima/historial', roles: ['ADMIN', 'SUPERVISOR', 'OPERADOR'] },
 	{ method: 'POST', path: '/api/clima/sync', roles: ['ADMIN', 'SUPERVISOR'] },
 	{ method: 'GET', path: '/api/alertas', roles: ['ADMIN', 'SUPERVISOR', 'OPERADOR'] },
 	{ method: 'GET', path: '/api/alertas/resumen', roles: ['ADMIN', 'SUPERVISOR', 'OPERADOR'] },

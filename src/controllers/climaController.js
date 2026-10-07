@@ -13,6 +13,7 @@ import {
 	resolveFincaScope,
 } from '../utils/accessScope.js';
 import { logger } from '../utils/logger.js';
+import { getWeatherHistory, validarConsultaClima } from '../services/clima/weatherHistory.service.js';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -41,6 +42,21 @@ function manejarError(res, error, fallback = 'Error en módulo de clima') {
 }
 
 export const ClimaController = {
+	async historial(req, res) {
+		try {
+			const hoy = dayjs().tz(WEATHER_TZ).format('YYYY-MM-DD');
+			const consulta = validarConsultaClima(req.query, hoy);
+			const scope = await resolveFincaScope({ rol: req.user?.rol, userId: Number(req.user?.id || 0) });
+			assertFincaInScope(consulta.fincaId, scope);
+			const data = await getWeatherHistory({ ...consulta, hoy });
+			return res.json({ success: true, data });
+		} catch (error) {
+			logger.error('clima_historial_error', { request_id: req.requestId || null, error: error?.message || 'unknown' });
+			const status = Number(error?.status) || 500;
+			return res.status(status).json({ success: false, message: status < 500 ? error.message : 'No fue posible consultar el historial climatico.' });
+		}
+	},
+
 	async status(req, res) {
 		try {
 			const scope = await resolveFincaScope({

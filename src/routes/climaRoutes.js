@@ -7,6 +7,7 @@ const router = Router();
 
 router.use(verificarSesion);
 router.get('/status', ClimaController.status);
+router.get('/historial', autorizarRoles('ADMIN', 'SUPERVISOR', 'OPERADOR'), ClimaController.historial);
 router.post('/sync', autorizarRoles('ADMIN', 'SUPERVISOR'), ClimaController.sync);
 
 export default router;
