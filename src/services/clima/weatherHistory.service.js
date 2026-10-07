@@ -20,12 +20,13 @@ export async function getWeatherHistory({ fincaId, desde, hasta, dias, hoy }, co
   const { rows: fincas } = await consultar('SELECT id, nombre, latitud, longitud FROM fincas WHERE id = $1', [fincaId]);
   const finca = fincas[0];
   if (!finca) throw Object.assign(new Error('Finca no encontrada o no disponible para esta sesion.'), { status: 404 });
+  // Legacy tables may lack actualizado_en; JSON lookup preserves an unknown timestamp as null.
   // The join also applies the existing tenant policies on fincas to climate rows.
   const { rows } = await consultar(`SELECT h.fecha::text AS fecha, h.temp_media, h.unidades_calor_dia,
-      h.precipitacion_mm, h.actualizado_en
+      h.precipitacion_mm, to_jsonb(h)->>'actualizado_en' AS actualizado_en
     FROM historial_clima_fincas h JOIN fincas f ON f.id = h.finca_id
     WHERE f.id = $1 AND h.fecha BETWEEN $2::date AND $3::date ORDER BY h.fecha`, [fincaId, desde, hasta]);
-  const { rows: ultimos } = await consultar(`SELECT h.fecha::text AS fecha, h.actualizado_en
+  const { rows: ultimos } = await consultar(`SELECT h.fecha::text AS fecha, to_jsonb(h)->>'actualizado_en' AS actualizado_en
     FROM historial_clima_fincas h JOIN fincas f ON f.id = h.finca_id
     WHERE f.id = $1 AND h.fecha <= $2::date ORDER BY h.fecha DESC LIMIT 1`, [fincaId, hoy]);
   const ultimo = ultimos[0] || null;
@@ -41,6 +42,6 @@ export async function getWeatherHistory({ fincaId, desde, hasta, dias, hoy }, co
       nota: 'La captura actual usa temperatura puntual y lluvia de 1 h o 3 h; el historial no conserva esa ventana. Las UC se estiman con max(0, temperatura - 14). No son diarios consolidados ni mediciones de una estacion en la finca.',
     },
     registros: rows.map(row => ({ fecha: row.fecha, temp_media: numero(row.temp_media),
-      unidades_calor_dia: numero(row.unidades_calor_dia), precipitacion_mm: numero(row.precipitacion_mm), actualizado_en: row.actualizado_en })),
+      unidades_calor_dia: numero(row.unidades_calor_dia), precipitacion_mm: numero(row.precipitacion_mm), actualizado_en: row.actualizado_en ?? null })),
   };
 }
