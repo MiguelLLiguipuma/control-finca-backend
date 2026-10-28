@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { OAuth2Client } from 'google-auth-library';
 import { randomUUID } from 'crypto';
 import { hashPassword, verifyPassword } from '../utils/password.js';
+import { publicRegistrationEnabled } from '../utils/registrationPolicy.js';
 
 function normalizarEmail(email) {
 	return String(email || '').trim().toLowerCase();
@@ -90,14 +91,14 @@ export const login = async (req, res) => {
 		if (result.rows.length === 0) {
 			return res
 				.status(401)
-				.json({ message: 'Usuario no encontrado o inactivo' });
+				.json({ message: 'Correo o contrasena incorrectos' });
 		}
 
 		const user = result.rows[0];
 		const check = verifyPassword(password, user.password);
 
 		if (!check.matches) {
-			return res.status(401).json({ message: 'Contraseña incorrecta' });
+			return res.status(401).json({ message: 'Correo o contrasena incorrectos' });
 		}
 
 		if (check.legacy) {
@@ -116,6 +117,9 @@ export const login = async (req, res) => {
 };
 
 export const register = async (req, res) => {
+    if (!publicRegistrationEnabled()) {
+        return res.status(403).json({ message: 'El acceso es por invitacion. Contacte al administrador de su finca.' });
+    }
 	const nombre = String(req.body?.nombre || '').trim();
 	const email = normalizarEmail(req.body?.email);
 	const password = String(req.body?.password || '');
@@ -238,6 +242,9 @@ export const googleLogin = async (req, res) => {
 				[sub, avatarUrl, current.id],
 			);
 		} else {
+			if (!publicRegistrationEnabled()) {
+				return res.status(403).json({ message: 'El acceso es por invitacion. Contacte al administrador de su finca.' });
+			}
 			const rolRes = await query(
 				`SELECT id, nombre
          FROM roles

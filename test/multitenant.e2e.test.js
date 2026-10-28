@@ -7,6 +7,7 @@ const TOKEN_SUPERVISOR = String(process.env.E2E_TOKEN_SUPERVISOR || '').trim();
 const TOKEN_ADMIN = String(process.env.E2E_TOKEN_ADMIN || '').trim();
 const FINCA_PERMITIDA = Number(process.env.E2E_FINCA_PERMITIDA || 0);
 const FINCA_NO_PERMITIDA = Number(process.env.E2E_FINCA_NO_PERMITIDA || 0);
+const FINCA_OTRA_EMPRESA = Number(process.env.E2E_FINCA_OTRA_EMPRESA || 0);
 const ANIO = Number(process.env.E2E_ANIO || new Date().getFullYear());
 
 const missingCritical =
@@ -44,6 +45,15 @@ if (missingCritical) {
 		() => {},
 	);
 } else {
+    if (Number.isSafeInteger(FINCA_OTRA_EMPRESA) && FINCA_OTRA_EMPRESA > 0) {
+        for (const [role, token] of [['operador', TOKEN_OPERATOR], ['supervisor', TOKEN_SUPERVISOR], ['admin de empresa', TOKEN_ADMIN]]) {
+            if (!token) continue;
+            test(`${role} no consulta reportes de otra empresa`, async () => {
+                const { status } = await getJson(`/api/reportes/total-semanal/${FINCA_OTRA_EMPRESA}/${ANIO}`, token);
+                assert.ok([403, 404].includes(status), `Se esperaba 403/404, se obtuvo ${status}`);
+            });
+        }
+    }
 	test('Operador accede a reportes de finca permitida', async () => {
 		const { status } = await getJson(
 			`/api/reportes/total-semanal/${FINCA_PERMITIDA}/${ANIO}`,

@@ -10,8 +10,8 @@
     "migrate": "node scripts/migrate.js",
     "test": "node --test",
     "test:tenant:e2e": "node --test test/multitenant.e2e.test.js",
-    "test:security": "node --test test/accessScope.guardrails.test.js test/permissions.matrix.test.js",
-    "verify:release": "npm run lint && npm run test:security && npm run test:tenant:e2e",
+    "test:security": "node --test test/accessScope.guardrails.test.js test/permissions.matrix.test.js test/authSessionPolicy.test.js test/rateLimitSimple.test.js test/http.integration.test.js",
+    "verify:release": "node scripts/requireTenantE2E.js && npm run lint && npm run test:security && npm run test:tenant:e2e",
     "lint": "node scripts/lint.js"
   },
   "imports": {},

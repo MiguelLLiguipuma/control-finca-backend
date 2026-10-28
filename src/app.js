@@ -37,12 +37,6 @@ function getAllowedOrigins() {
 	];
 }
 
-function isAllowedVercelPreview(origin) {
-	return /^https:\/\/control-finca-frontend-[a-z0-9-]+\.vercel\.app$/i.test(
-		String(origin || ''),
-	);
-}
-
 function canAccessSecurityDebug(req) {
 	const expected = String(process.env.DEBUG_HEALTH_TOKEN || '').trim();
 	if (!expected) {
@@ -54,6 +48,7 @@ function canAccessSecurityDebug(req) {
 
 export function createApp() {
 	const app = express();
+	app.disable('x-powered-by');
 	const allowedOrigins = getAllowedOrigins();
 	const apiLimiter = createRateLimit({
 		windowMs: 10 * 60 * 1000,
@@ -63,16 +58,23 @@ export function createApp() {
 	});
 
 	app.use(requestContext);
+	app.use((_req, res, next) => {
+		res.set('X-Content-Type-Options', 'nosniff');
+		res.set('X-Frame-Options', 'DENY');
+		res.set('Referrer-Policy', 'no-referrer');
+		res.set('Cache-Control', 'no-store');
+		next();
+	});
 	app.use(
 		cors({
 			origin(origin, callback) {
 				if (!origin) return callback(null, true);
 				if (allowedOrigins.includes(origin)) return callback(null, true);
-				if (isAllowedVercelPreview(origin)) return callback(null, true);
 				return callback(new Error('Origen no permitido por CORS'));
 			},
 			methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 			allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id'],
+			exposedHeaders: ['x-request-id', 'Retry-After'],
 		}),
 	);
 	app.use(express.json({ limit: '1mb' }));
@@ -161,6 +163,12 @@ export function createApp() {
 	app.use('/api/balanza', balanzaRoutes);
 
 	app.use((err, req, res, _next) => {
+		if (err?.type === 'entity.parse.failed') {
+			return res.status(400).json({ message: 'El cuerpo de la solicitud no es JSON valido' });
+		}
+		if (err?.type === 'entity.too.large') {
+			return res.status(413).json({ message: 'La solicitud supera el tamano permitido' });
+		}
 		if (String(err?.message || '').includes('CORS')) {
 			logger.warn('cors_blocked', {
 				request_id: req.requestId,

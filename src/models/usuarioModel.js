@@ -1,6 +1,7 @@
 import { query } from '../db/db.js';
 
 export const UsuarioModel = {
+	revokeTokens: (id) => query('UPDATE usuarios SET token_version = COALESCE(token_version, 1) + 1 WHERE id = $1', [id]),
 	findAll: () =>
 		query(
 			`SELECT u.id,

@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import { query } from '../db/db.js';
 import { setRequestAuthScope } from '../utils/requestScope.js';
+import { matchesCurrentIdentity, getCachedSession, setCachedSession, sessionCacheRevision } from '../utils/authSessionPolicy.js';
 
 function normalizeRole(role) {
 	const raw = String(role || '').trim().toUpperCase();
@@ -9,28 +10,8 @@ function normalizeRole(role) {
 	return raw;
 }
 
-const SESSION_CACHE_TTL_MS = Number(process.env.AUTH_SESSION_CACHE_TTL_MS || 30000);
-const sessionCache = new Map();
-
 function buildSessionCacheKey(userId, tokenVersion, role, empresaId) {
 	return [userId, tokenVersion, normalizeRole(role), Number(empresaId || 0) || 0].join(':');
-}
-
-function getCachedSession(key) {
-	const cached = sessionCache.get(key);
-	if (!cached) return null;
-	if (cached.expiresAt <= Date.now()) {
-		sessionCache.delete(key);
-		return null;
-	}
-	return cached.value;
-}
-
-function setCachedSession(key, value) {
-	sessionCache.set(key, {
-		expiresAt: Date.now() + SESSION_CACHE_TTL_MS,
-		value,
-	});
 }
 
 function respondDbSaturated(res, error) {
@@ -83,10 +64,13 @@ export const verificarSesion = async (req, res, next) => {
 			return next();
 		}
 
+		const cacheRevision = sessionCacheRevision();
 		const userRes = await query(
-			`SELECT id, activo, empresa_id, COALESCE(token_version, 1) AS token_version
-       FROM usuarios
-       WHERE id = $1
+			`SELECT u.id, u.activo, u.empresa_id, COALESCE(u.token_version, 1) AS token_version, r.nombre AS rol
+       FROM usuarios u
+       JOIN usuarios_roles ur ON ur.usuario_id = u.id
+       JOIN roles r ON r.id = ur.rol_id
+       WHERE u.id = $1
        LIMIT 1`,
 			[userId],
 		);
@@ -96,14 +80,14 @@ export const verificarSesion = async (req, res, next) => {
 		}
 
 		const dbTokenVersion = Number(userRes.rows[0].token_version || 1);
-		if (dbTokenVersion !== tokenVersion) {
+		if (dbTokenVersion !== tokenVersion || !matchesCurrentIdentity(decoded, userRes.rows[0])) {
 			return res.status(403).json({ message: 'Sesión expirada, ingrese nuevamente' });
 		}
 
-		const empresaId = Number(decoded?.eid || userRes.rows[0].empresa_id || 0) || null;
+		const empresaId = Number(userRes.rows[0].empresa_id || 0) || null;
 		req.user = {
 			id: userId,
-			rol: decoded?.rol,
+			rol: userRes.rows[0].rol,
 			empresa_id: empresaId,
 			tv: tokenVersion,
 		};
@@ -123,7 +107,7 @@ export const verificarSesion = async (req, res, next) => {
 		setCachedSession(cacheKey, {
 			user: req.user,
 			allowedFincaIds,
-		});
+		}, cacheRevision);
 
 		setRequestAuthScope({
 			userId,
@@ -137,6 +121,10 @@ export const verificarSesion = async (req, res, next) => {
 		if (error?.status === 503 || error?.code === '53300') {
 			console.error(`🔐 Error Auth: ${error.message}`);
 			return respondDbSaturated(res, error);
+		}
+		if (!['TokenExpiredError', 'JsonWebTokenError', 'NotBeforeError'].includes(error?.name)) {
+			console.error('Error verificando sesion:', error?.code || error?.name || 'unknown');
+			return res.status(503).json({ message: 'No se pudo verificar la sesion. Intente nuevamente en unos segundos.' });
 		}
 
 		const mensaje =

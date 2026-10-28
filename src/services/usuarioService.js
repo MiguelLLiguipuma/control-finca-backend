@@ -1,8 +1,8 @@
 import { UsuarioModel } from '../models/usuarioModel.js';
 import { FincaModel } from '../models/fincaModel.js';
 import { EmpresaModel } from '../models/empresaModel.js';
-import { query } from '../db/db.js';
-import { hashPassword, isPasswordHash } from '../utils/password.js';
+import { hashPassword } from '../utils/password.js';
+import { invalidateUserSessions } from '../utils/authSessionPolicy.js';
 
 function normalizarEmail(email) {
 	return String(email || '').trim().toLowerCase();
@@ -93,30 +93,30 @@ export const UsuarioService = {
 
 		let passwordChanged = false;
 		if (typeof payload?.password === 'string' && payload.password.trim()) {
-			if (!isPasswordHash(payload.password)) {
-				validarPassword(payload.password);
-				data.password = hashPassword(payload.password);
-				passwordChanged = true;
-			}
+			validarPassword(payload.password);
+			data.password = hashPassword(payload.password);
+			passwordChanged = true;
+		} else {
+			delete data.password;
 		}
 
-		await UsuarioModel.update(id, data);
-
-		if (passwordChanged) {
-			await query(
-				'UPDATE usuarios SET token_version = COALESCE(token_version, 1) + 1 WHERE id = $1',
-				[id],
-			);
-		}
-		if (payload?.rol_id || payload?.rol) {
-			const rolId = await resolverRolId(payload);
-			await UsuarioModel.replaceUsuarioRol(Number(id), rolId);
+		const changesAccess = passwordChanged || payload?.rol_id !== undefined || payload?.rol !== undefined ||
+			payload?.empresa_id !== undefined || payload?.activo !== undefined;
+		const rolId = payload?.rol_id || payload?.rol ? await resolverRolId(payload) : null;
+		try {
+			// Revoke first: a partial write must not leave an old privileged token valid.
+			if (changesAccess) await UsuarioModel.revokeTokens(id);
+			await UsuarioModel.update(id, data);
+			if (rolId) await UsuarioModel.replaceUsuarioRol(Number(id), rolId);
+		} finally {
+			if (changesAccess) invalidateUserSessions(id);
 		}
 
 		return await UsuarioService.getById(id);
 	},
 	remove: async (id) => {
-		await UsuarioModel.remove(id);
+		try { await UsuarioModel.remove(id); }
+		finally { invalidateUserSessions(id); }
 		return { ok: true };
 	},
 	getFincasAsignadas: async (id) => {
@@ -144,7 +144,10 @@ export const UsuarioService = {
 			if (!finca.rows.length) throw new Error(`finca_id ${fincaId} no existe`);
 		}
 
-		await UsuarioModel.replaceFincasAsignadas(Number(id), fincaIds);
+		try {
+			await UsuarioModel.revokeTokens(id);
+			await UsuarioModel.replaceFincasAsignadas(Number(id), fincaIds);
+		} finally { invalidateUserSessions(id); }
 		return await UsuarioService.getFincasAsignadas(id);
 	},
 };
