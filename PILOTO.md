@@ -40,5 +40,5 @@ El seguimiento ampliado esta en frontend/docs/preparacion-piloto.md del proyecto
 - Aprobadas 28 pruebas de seguridad y 22 pruebas adicionales de cosecha, idempotencia, deteccion, contrasenas y clima.
 - Chequeo sintactico aprobado para 90 archivos. Auditoria npm de dependencias de produccion: cero vulnerabilidades reportadas.
 - No se ejecutaron las pruebas E2E reales entre empresas: requieren un entorno separado y las variables anteriores. No declarar verificado el aislamiento por estas pruebas locales.
-- Los cambios generados dentro de node_modules quedan fuera de los commits. Esa carpeta ya estaba versionada; retirar su seguimiento en un cambio separado, conservando la instalacion local. Usar npm ci al instalar desde el lockfile.
+- node_modules se retiro del seguimiento Git en un commit de limpieza separado, conservando la instalacion local. La carpeta permanece ignorada. Usar npm ci al instalar desde package-lock.json; no volver a agregar las dependencias generadas al repositorio.
 - La preparacion de estos commits no ejecuta migraciones, no modifica datos de produccion y no hace push ni despliega. Revisar CORS_ORIGINS y la politica de registro antes de desplegar.
