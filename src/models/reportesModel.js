@@ -605,24 +605,27 @@ export const ReportesModel = {
 		return filas;
 	},
 
-	async registrarFumigacion({ fincaId, fechaFumigacion, observacion, usuarioId }) {
-		const { rows } = await query(
+	async registrarFumigacion({ fincaId, fechaFumigacion, observacion, usuarioId }, consultar = query) {
+		const { rows } = await consultar(
 			`INSERT INTO fumigaciones_sanidad (
 				finca_id,
 				fecha_fumigacion,
 				observacion,
 				usuario_id
 			)
-			VALUES ($1, $2::date, $3, $4)
+			SELECT f.id, $2::date, $3, u.id FROM fincas f
+			JOIN usuarios u ON u.id = $4 AND u.activo = true AND u.empresa_id = f.empresa_id
+			WHERE f.id = $1
 			RETURNING id, finca_id, fecha_fumigacion, observacion, usuario_id, created_at`,
 			[fincaId, fechaFumigacion, observacion || null, usuarioId || null],
 		);
+		if (!rows.length) throw Object.assign(new Error('Finca no disponible para esta cuenta.'), { status: 403 });
 		return rows[0];
 	},
 
-	async obtenerFumigaciones({ fincaIds, limit = 30 }) {
-		const params = [];
-		const where = [];
+	async obtenerFumigaciones({ fincaIds, limit = 30, usuarioId }, consultar = query) {
+		const params = [usuarioId || null];
+		const where = ['f.empresa_id = (SELECT empresa_id FROM usuarios WHERE id = $1 AND activo = true)'];
 
 		if (Array.isArray(fincaIds) && fincaIds.length) {
 			params.push(fincaIds);
@@ -632,7 +635,7 @@ export const ReportesModel = {
 		const safeLimit = Math.min(Math.max(Number(limit) || 30, 1), 200);
 		params.push(safeLimit);
 
-		const { rows } = await query(
+		const { rows } = await consultar(
 			`SELECT
 				fs.id,
 				fs.finca_id,

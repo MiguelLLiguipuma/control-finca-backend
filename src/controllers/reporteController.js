@@ -1,4 +1,6 @@
 import { ReportesService } from '../services/reportesService.js';
+import { autorizarFincaLabor } from '../services/laboresSueloService.js';
+import { validarFechaLabor, validarObservacionesLabor } from '../utils/laborValidation.js';
 import {
 	applyFincaScopeToRequestedIds,
 	assertFincaInScope,
@@ -55,14 +57,10 @@ function parseDateISO(raw) {
 	return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
 }
 
-function parseFincaIdFromBody(body) {
-	const fincaId = Number(body?.finca_id || 0);
-	if (!Number.isInteger(fincaId) || fincaId <= 0) {
-		const err = new Error('finca_id invalido');
-		err.status = 400;
-		throw err;
-	}
-	return fincaId;
+function manejarErrorFumigacion(res, err) {
+	const status = Number(err?.status);
+	if (status >= 400 && status < 500) return manejarError(res, err);
+	return res.status(status === 503 ? 503 : 500).json({ error: 'No se pudo completar la operacion de fumigacion.' });
 }
 
 function esOperador(req) {
@@ -248,17 +246,10 @@ export const ReportesController = {
 
 	async registrarFumigacion(req, res) {
 		try {
-			const fincaId = parseFincaIdFromBody(req.body);
-			await asegurarAccesoFinca(req, fincaId);
-
-			const fechaFumigacion = parseDateISO(req.body?.fecha_fumigacion);
-			if (!fechaFumigacion) {
-				return res
-					.status(400)
-					.json({ error: 'fecha_fumigacion invalida (YYYY-MM-DD)' });
-			}
-
-			const observacion = String(req.body?.observacion || '').trim();
+			const fechaFumigacion = validarFechaLabor(req.body?.fecha_fumigacion);
+			const observacion = validarObservacionesLabor(req.body?.observacion);
+			// Preserve existing fumigation roles while enforcing the company boundary.
+			const { id: fincaId } = await autorizarFincaLabor(req.body?.finca_id, req.user);
 			const usuarioId = Number(req.user?.id || 0) || null;
 
 			const data = await ReportesService.registrarFumigacion({
@@ -269,12 +260,13 @@ export const ReportesController = {
 			});
 			res.status(201).json(data);
 		} catch (err) {
-			manejarError(res, err, 400);
+			manejarErrorFumigacion(res, err);
 		}
 	},
 
 	async fumigaciones(req, res) {
 		try {
+			if (req.query?.finca_id !== undefined) await autorizarFincaLabor(req.query.finca_id, req.user);
 			const scope = await resolveFincaScope({
 				rol: req.user?.rol,
 				userId: Number(req.user?.id || 0),
@@ -288,11 +280,12 @@ export const ReportesController = {
 			const limit = Math.min(Math.max(Number(req.query?.limit) || 30, 1), 200);
 			const data = await ReportesService.getFumigaciones({
 				fincaIds: fincaIds.length ? fincaIds : null,
+				usuarioId: Number(req.user?.id || 0),
 				limit,
 			});
 			res.json(data);
 		} catch (err) {
-			manejarError(res, err);
+			manejarErrorFumigacion(res, err);
 		}
 	},
 

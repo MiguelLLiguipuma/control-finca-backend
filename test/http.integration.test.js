@@ -71,6 +71,15 @@ test('GET /api/embarque/vouchers sin token responde 401', async (t) => {
 	assert.equal(res.status, 401);
 });
 
+test('labores de campo exige sesion tanto para consultar como para registrar', async (t) => {
+	const { server, baseUrl } = await startTestServer();
+	t.after(() => server.close());
+	for (const method of ['GET', 'POST']) {
+		const res = await fetch(`${baseUrl}/api/labores-suelo`, { method });
+		assert.equal(res.status, 401);
+	}
+});
+
 test('Rate limit global de /api responde 429 al exceder', async (t) => {
 	const { server, baseUrl } = await startTestServer();
 	t.after(() => server.close());

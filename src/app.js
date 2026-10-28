@@ -15,6 +15,7 @@ import embarqueRoutes from './routes/embarqueRoutes.js';
 import balanzaRoutes from './routes/balanzaRoutes.js';
 import climaRoutes from './routes/climaRoutes.js';
 import alertaRoutes from './routes/alertaRoutes.js';
+import laboresSueloRoutes from './routes/laboresSueloRoutes.js';
 import { createRateLimit } from './middlewares/rateLimitSimple.js';
 import { requestContext } from './middlewares/requestContext.js';
 import { requestLogger } from './middlewares/requestLogger.js';
@@ -161,6 +162,7 @@ export function createApp() {
 	app.use('/api/embarque', embarqueRoutes);
 	app.use('/api/auth', authRoutes);
 	app.use('/api/balanza', balanzaRoutes);
+	app.use('/api/labores-suelo', laboresSueloRoutes);
 
 	app.use((err, req, res, _next) => {
 		if (err?.type === 'entity.parse.failed') {
