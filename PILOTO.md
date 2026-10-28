@@ -35,6 +35,10 @@ Las pruebas E2E actuales son de lectura; deben ampliarse a escrituras, exportaci
 
 El seguimiento ampliado esta en frontend/docs/preparacion-piloto.md del proyecto.
 
+## Labores de campo
+
+La nueva interfaz requiere desplegar la API de labores y aplicar las migraciones 025 y 026 en orden. El contrato, los permisos, las pruebas y las limitaciones de la integracion de fumigacion estan en [docs/labores-campo.md](docs/labores-campo.md). La preparacion de commits no ejecuta migraciones en Railway.
+
 ## Preparacion de commits: 2026-10-28
 
 - Aprobadas 28 pruebas de seguridad y 22 pruebas adicionales de cosecha, idempotencia, deteccion, contrasenas y clima.
